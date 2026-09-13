@@ -1,0 +1,22 @@
+# Core FastAPI
+fastapi
+uvicorn[standard]
+
+# Computer Vision & AI
+opencv-python
+deepface
+insightface
+numpy
+scikit-learn
+xgboost
+
+# Database
+sqlalchemy
+redis
+
+# MLOps
+mlflow
+
+# Testing
+pytest
+httpx
