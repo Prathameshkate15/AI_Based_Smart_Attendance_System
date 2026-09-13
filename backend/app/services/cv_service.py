@@ -5,47 +5,73 @@ Handles face detection, liveness detection, and face recognition
 
 import cv2
 import numpy as np
+import insightface
 from deepface import DeepFace
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, List
 
 
 class CvPipeline:
     """Main computer vision pipeline for biometric attendance."""
 
-    def __init__(self, confidence_threshold: float = 0.5, liveness_threshold: float = 0.7):
+    def __init__(
+        self,
+        confidence_threshold: float = 0.5,
+        liveness_threshold: float = 0.7,
+        model_name: str = "buffalo_l",
+    ):
         self.confidence_threshold = confidence_threshold
         self.liveness_threshold = liveness_threshold
-        self.known_embeddings = {}  # user_id -> embedding vector
-        self.known_users = {}  # user_id -> name, employee_id
 
-    def register_face(self, user_id: int, face_image: np.ndarray, name: str, employee_id: str) -> Dict[str, Any]:
+        # Initialize InsightFace model for embeddings
+        try:
+            self.model = insightface.model_zoo.get_model(model_name)
+            self.model.prepare(ctx_id=0)
+        except Exception:
+            self.model = None
+            print("Warning: Could not load InsightFace model, falling back to DeepFace")
+
+        self.known_embeddings: Dict[int, np.ndarray] = {}  # user_id -> embedding vector
+        self.known_users: Dict[int, Dict[str, Any]] = {}  # user_id -> name, employee_id
+
+    def register_face(
+        self, user_id: int, face_image: np.ndarray, name: str, employee_id: str
+    ) -> Dict[str, Any]:
         """
-        Extract face embedding from registered images.
-        Capture 5-10 images and average the embeddings.
+        Extract face embedding from a registered face image.
         """
         try:
-            # Use DeepFace to extract embedding
-            embedding_objs = DeepFace.represent(
-                img_path=face_image,
-                model="Facenet",
-                enforce_detection=False,
-            )
+            # Use InsightFace if available, otherwise DeepFace
+            embedding = None
 
-            if not embedding_objs:
-                return {"success": False, "error": "No face detected in image"}
+            if self.model is not None:
+                # Convert BGR to RGB for InsightFace
+                img_rgb = cv2.cvtColor(face_image, cv2.COLOR_BGR2RGB)
+                embedding = self.model.get_emb(img_rgb)
+                if isinstance(embedding, list):
+                    embedding = np.array(embedding)
+            else:
+                # Fallback to DeepFace
+                obj = DeepFace.represent(
+                    img_path=face_image,
+                    model_name="Facenet",
+                    enforce_detection=False,
+                )
+                if obj and len(obj) > 0:
+                    embedding = np.array(obj[0]["embedding"])
 
-            # Average embeddings if multiple images provided
-            embeddings = [np.array(emb["embedding"]) for emb in embedding_objs]
-            average_embedding = np.mean(embeddings, axis=0)
-            normalized_embedding = average_embedding / np.linalg.norm(average_embedding)
+            if embedding is None:
+                return {"success": False, "error": "Could not extract face embedding"}
 
-            self.known_embeddings[user_id] = normalized_embedding
+            # Normalize embedding for cosine similarity
+            embedding_norm = embedding / np.linalg.norm(embedding)
+
+            self.known_embeddings[user_id] = embedding_norm
             self.known_users[user_id] = {"name": name, "employee_id": employee_id}
 
             return {
                 "success": True,
-                "embedding_dimension": len(normalized_embedding),
-                "message": f"Face embedded registered for user {user_id}",
+                "embedding_dimension": len(embedding_norm),
+                "message": f"Face embedding registered for user {user_id} ({name})",
             }
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -57,102 +83,124 @@ class CvPipeline:
         """
         try:
             # Extract embedding from live frame
-            embedding_objs = DeepFace.represent(
-                img_path=face_image,
-                model="Facenet",
-                enforce_detection=False,
-            )
+            embedding = None
 
-            if not embedding_objs:
+            if self.model is not None:
+                img_rgb = cv2.cvtColor(face_image, cv2.COLOR_BGR2RGB)
+                embedding = self.model.get_emb(img_rgb)
+                if isinstance(embedding, list):
+                    embedding = np.array(embedding)
+            else:
+                # Fallback to DeepFace
+                obj = DeepFace.represent(
+                    img_path=face_image,
+                    model_name="Facenet",
+                    enforce_detection=False,
+                )
+                if obj and len(obj) > 0:
+                    embedding = np.array(obj[0]["embedding"])
+
+            if embedding is None:
                 return None, None, None
 
-            live_embedding = np.array(embedding_objs[0]["embedding"])
-            normalized_live = live_embedding / np.linalg.norm(live_embedding)
+            # Normalize the live embedding
+            embedding_norm = embedding / np.linalg.norm(embedding)
 
             # Compare against known embeddings using cosine similarity
             best_match_id = None
             best_similarity = -1.0
 
-            for user_id, known_embedding in self.known_embeddings.items():
-                # Cosine similarity
-                similarity = np.dot(normalized_live, known_embedding)
+            for uid, known_emb in self.known_embeddings.items():
+                # Cosine similarity: dot product of normalized vectors
+                similarity = float(np.dot(embedding_norm, known_emb))
 
                 if similarity > best_similarity and similarity >= self.confidence_threshold:
                     best_similarity = similarity
-                    best_match_id = user_id
+                    best_match_id = uid
 
             if best_match_id is not None:
                 user_info = self.known_users.get(best_match_id, {})
-                return best_match_id, float(best_similarity), user_info
+                return best_match_id, best_similarity, user_info
 
             return None, None, None
 
         except Exception as e:
             return None, None, None
 
-    def check_liveness(self, face_image_sequence: list) -> Tuple[bool, float]:
+    def check_liveness(
+        self, face_image_sequence: List[np.ndarray]
+    ) -> Tuple[bool, float]:
         """
         Perform liveness detection using a sequence of face images.
         Returns (is_live, liveness_score).
+        Uses blink detection and head movement analysis.
         """
         try:
             if len(face_image_sequence) < 2:
                 return False, 0.0
 
-            # Simple liveness checks:
-            # 1. Check for eye blink pattern (EAR - Eye Aspect Ratio)
-            # 2. Check for head movement between frames
-            # 3. Check for texture consistency (photo vs 3D face)
+            ear_scores = []  # Eye Aspect Ratio scores
+            motion_scores = []
 
-            ear_scores = []
             for i in range(1, len(face_image_sequence)):
-                prev_gray = cv2.cvtColor(face_image_sequence[i - 1], cv2.COLOR_BGR2GRAY)
+                prev_gray = cv2.cvtColor(
+                    face_image_sequence[i - 1], cv2.COLOR_BGR2GRAY
+                )
                 curr_gray = cv2.cvtColor(face_image_sequence[i], cv2.COLOR_BGR2GRAY)
 
-                # Simple motion detection - calculate frame difference
+                # Motion detection - frame difference
                 frame_diff = cv2.absdiff(prev_gray, curr_gray)
-                motion_score = np.mean(frame_diff)
+                motion_score = float(np.mean(frame_diff))
+                motion_scores.append(motion_score)
 
-                # Simple EAR approximation based on eye region
-                # In production, use dlib shape predictor for precise eye landmarks
+                # Estimate Eye Aspect Ratio (EAR)
                 ear = self._estimate_ear(face_image_sequence[i])
                 ear_scores.append(ear)
 
-            # Liveness score: combination of motion (live people move) and blink patterns
-            motion_consistency = np.mean(ear_scores) if ear_scores else 0
-            blink_indicator = sum(1 for ear in ear_scores if ear < 0.3) / len(ear_scores) if ear_scores else 0
+            # Calculate metrics
+            avg_motion = np.mean(motion_scores) if motion_scores else 0.0
+            blink_count = sum(1 for ear in ear_scores if ear < 0.3)
+            blink_ratio = blink_count / len(ear_scores) if ear_scores else 0.0
 
-            # Live person: has some motion AND blink pattern
-            liveness_score = (0.6 * min(motion_consistivity / 50.0, 1.0) +
-                              0.4 * min(blink_indicator * 3, 1.0))
+            # Liveness scoring:
+            # - Live person: has head motion AND blink patterns
+            # - Spoof (photo): static, no motion, no blinks
+            motion_factor = min(avg_motion / 30.0, 1.0)  # Normalize
+            blink_factor = min(blink_ratio * 5, 1.0)  # Reward blinks
 
+            liveness_score = 0.6 * motion_factor + 0.4 * blink_factor
             is_live = liveness_score >= self.liveness_threshold
+
             return is_live, float(liveness_score)
 
         except Exception as e:
             return False, 0.0
 
     def _estimate_ear(self, face_image: np.ndarray) -> float:
-        """Estimate Eye Aspect Ratio for liveness detection."""
+        """
+        Estimate Eye Aspect Ratio for liveness detection.
+        Uses a simplified model based on eye region intensity.
+        """
         try:
-            # Simple approximation - in production use dlib shape predictor
-            gray = cv2.cvtColor(face_image, cv2.COLOR_BGR2GRAY)
-            # Look at the upper and lower eye regions
-            h, w = gray.shape
+            h, w = face_image.shape[:2]
 
-            # Simple threshold-based eye detection
-            # This is a very rough approximation
-            left_eye_region = gray[int(h * 0.4):int(h * 0.5), int(w * 0.3):int(w * 0.7)]
-            right_eye_region = gray[int(h * 0.45):int(h * 0.55), int(w * 0.35):int(w * 0.65)]
+            # Extract eye regions (approximate positions)
+            # Left eye: top 40% of face, middle third
+            # Right eye: top 45% of face, middle third
+            left_eye = face_image[int(h * 0.35) : int(h * 0.45), int(w * 0.3) : int(w * 0.6)]
+            right_eye = face_image[int(h * 0.4) : int(h * 0.5), int(w * 0.35) : int(w * 0.65)]
 
-            # Calculate ratio of white pixels (simplified)
-            left_white = np.mean(left_eye_region)
-            right_white = np.mean(right_eye_region)
+            # Convert to grayscale
+            left_gray = cv2.cvtColor(left_eye, cv2.COLOR_BGR2GRAY)
+            right_gray = cv2.cvtColor(right_eye, cv2.COLOR_BGR2GRAY)
 
-            # Blink = eyes darken (pupils expand, eyelids close)
-            # Open eyes = brighter region
-            eye_ratio = min(left_white, right_white) / 255.0
-            return float(eye_ratio)
+            # Calculate mean intensity - blinks make eyes darker
+            left_mean = float(np.mean(left_gray))
+            right_mean = float(np.mean(right_gray))
+
+            # Average the two eyes, normalize to 0-1 range
+            avg_mean = (left_mean + right_mean) / 2.0 / 255.0
+            return avg_mean
         except Exception:
             return 0.5
 
@@ -162,5 +210,9 @@ class CvPipeline:
             "known_users_count": len(self.known_users),
             "confidence_threshold": self.confidence_threshold,
             "liveness_threshold": self.liveness_threshold,
+            "model_available": self.model is not None,
             "pipeline_ready": len(self.known_users) > 0,
+            "embedding_dimension": (
+                len(next(iter(self.known_embeddings.values()))) if self.known_embeddings else 512
+            ),
         }
