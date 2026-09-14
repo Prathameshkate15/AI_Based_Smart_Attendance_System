@@ -38,6 +38,11 @@ class CvPipeline:
             if cascade_classifier
             else None
         )
+        self.profile_detector = (
+            cascade_classifier(cv2.data.haarcascades + "haarcascade_profileface.xml")
+            if cascade_classifier
+            else None
+        )
 
     def extract_embedding(self, face_image: np.ndarray) -> Optional[np.ndarray]:
         """Extract and normalize one face embedding."""
@@ -56,16 +61,45 @@ class CvPipeline:
 
     def extract_single_face_embedding(self, image: np.ndarray) -> Optional[np.ndarray]:
         """Detect exactly one face and return its normalized embedding."""
-        if self.face_detector is None:
+        boxes = self.detect_face_boxes(image)
+        if not boxes:
             return self.extract_embedding(image)
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        boxes = self.face_detector.detectMultiScale(
-            gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60)
-        )
         if len(boxes) != 1:
             return None
         x, y, width, height = boxes[0]
         return self.extract_embedding(image[y : y + height, x : x + width])
+
+    def detect_face_boxes(self, image: np.ndarray) -> List[Tuple[int, int, int, int]]:
+        """Detect frontal and profile faces, merging duplicate detections."""
+        if self.face_detector is None:
+            return []
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        detectors = [self.face_detector]
+        if self.profile_detector is not None:
+            detectors.append(self.profile_detector)
+        detections = []
+        for detector in detectors:
+            detections.extend(
+                detector.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(50, 50))
+            )
+        if not detections:
+            return []
+        boxes = [tuple(map(int, box)) for box in detections]
+        merged = []
+        for box in boxes:
+            if not any(self._intersection_over_union(box, existing) > 0.35 for existing in merged):
+                merged.append(box)
+        return merged
+
+    @staticmethod
+    def _intersection_over_union(first, second) -> float:
+        ax, ay, aw, ah = first
+        bx, by, bw, bh = second
+        left, top = max(ax, bx), max(ay, by)
+        right, bottom = min(ax + aw, bx + bw), min(ay + ah, by + bh)
+        overlap = max(0, right - left) * max(0, bottom - top)
+        union = aw * ah + bw * bh - overlap
+        return overlap / union if union else 0.0
 
     def register_face(
         self, user_id: int, face_image: np.ndarray, name: str, employee_id: str
@@ -124,12 +158,9 @@ class CvPipeline:
 
     def analyze_faces(self, image: np.ndarray) -> List[Dict[str, Any]]:
         """Detect all faces and match each face against registered embeddings."""
-        if self.face_detector is None:
+        boxes = self.detect_face_boxes(image)
+        if not boxes:
             return []
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        boxes = self.face_detector.detectMultiScale(
-            gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60)
-        )
         matches = []
         for x, y, width, height in boxes:
             crop = image[y : y + height, x : x + width]

@@ -92,10 +92,7 @@ async def registration_check(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image could not be decoded")
     if cv_pipeline.face_detector is None:
         return {"valid": True, "face_count": 1}
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    boxes = cv_pipeline.face_detector.detectMultiScale(
-        gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60)
-    )
+    boxes = cv_pipeline.detect_face_boxes(image)
     face_count = len(boxes)
     return {
         "valid": face_count == 1,
