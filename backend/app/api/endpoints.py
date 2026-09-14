@@ -79,6 +79,35 @@ async def analyze_frame(face_image: UploadFile = File(...), db: Session = Depend
     return {"faces": cv_pipeline.analyze_faces(image)}
 
 
+@router.post("/registration-check", response_model=dict)
+async def registration_check(
+    face_image: UploadFile = File(...), _admin: str = Depends(require_admin)
+):
+    """Validate one enrollment frame before advancing to the next angle."""
+    import cv2
+
+    contents = await face_image.read()
+    image = cv2.imdecode(np.frombuffer(contents, np.uint8), cv2.IMREAD_COLOR)
+    if image is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image could not be decoded")
+    if cv_pipeline.face_detector is None:
+        return {"valid": True, "face_count": 1}
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    boxes = cv_pipeline.face_detector.detectMultiScale(
+        gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60)
+    )
+    face_count = len(boxes)
+    return {
+        "valid": face_count == 1,
+        "face_count": face_count,
+        "message": (
+            "Face is clear"
+            if face_count == 1
+            else "Keep exactly one face centered, well lit, and fully visible"
+        ),
+    }
+
+
 @router.post("/register", response_model=dict, status_code=status.HTTP_201_CREATED)
 async def register_user(
     name: str,

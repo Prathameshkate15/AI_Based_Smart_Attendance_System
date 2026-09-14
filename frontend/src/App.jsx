@@ -160,12 +160,38 @@ function App() {
       ];
       const frames = [];
       for (const [key, instruction] of angles) {
-        setRegistration({ key, instruction, countdown: captureDuration });
-        for (let countdown = captureDuration; countdown > 0; countdown -= 0.5) {
-          setRegistration({ key, instruction, countdown });
-          await new Promise((resolve) => window.setTimeout(resolve, 500));
+        let acceptedFrame = null;
+        for (let attempt = 1; attempt <= 3 && !acceptedFrame; attempt += 1) {
+          setRegistration({ key, instruction, countdown: captureDuration, attempt });
+          for (let countdown = captureDuration; countdown > 0; countdown -= 0.5) {
+            setRegistration({ key, instruction, countdown, attempt });
+            await new Promise((resolve) => window.setTimeout(resolve, 500));
+          }
+          const candidate = await captureFrame();
+          const checkForm = new FormData();
+          checkForm.append("face_image", candidate, `${key}.jpg`);
+          const checkResponse = await adminFetch(`${API_BASE}/registration-check`, {
+            method: "POST",
+            body: checkForm,
+          });
+          const check = await checkResponse.json().catch(() => ({}));
+          if (checkResponse.ok && check.valid) {
+            acceptedFrame = candidate;
+          } else if (attempt < 3) {
+            setRegistration({
+              key,
+              instruction: `${key.toUpperCase()} image is unclear — please take it again`,
+              countdown: 2,
+              attempt,
+              retry: true,
+            });
+            setStatusMessage(`${key.toUpperCase()} angle needs a retake: ${check.message || "face not clear"}`);
+            await new Promise((resolve) => window.setTimeout(resolve, 2000));
+          } else {
+            throw new Error(`${key.toUpperCase()} angle is still unclear after 3 attempts. Improve lighting and try again.`);
+          }
         }
-        frames.push(await captureFrame());
+        frames.push(acceptedFrame);
         setCapturedAngles((current) => [...current, key]);
       }
       const form = new FormData();
@@ -437,7 +463,9 @@ function App() {
                 <div className="registration-guide">
                   <strong>{registration.instruction}</strong>
                   <span>Capturing in {registration.countdown}...</span>
-                  <small>{capturedAngles.length}/5 angles captured · {registration.countdown}s</small>
+                  <small>{capturedAngles.length}/5 angles captured · {registration.countdown}s
+                    {registration.attempt > 1 && ` · attempt ${registration.attempt}/3`}
+                  </small>
                 </div>
               )}
             </div>
