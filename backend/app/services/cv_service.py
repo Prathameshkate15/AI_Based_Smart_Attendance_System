@@ -39,6 +39,34 @@ class CvPipeline:
             else None
         )
 
+    def extract_embedding(self, face_image: np.ndarray) -> Optional[np.ndarray]:
+        """Extract and normalize one face embedding."""
+        if self.model is not None:
+            embedding = self.model.get_emb(cv2.cvtColor(face_image, cv2.COLOR_BGR2RGB))
+        else:
+            result = DeepFace.represent(
+                img_path=face_image, model_name="Facenet", enforce_detection=False
+            )
+            embedding = np.array(result[0]["embedding"]) if result else None
+        if embedding is None:
+            return None
+        embedding = np.asarray(embedding, dtype=np.float32).reshape(-1)
+        norm = np.linalg.norm(embedding)
+        return embedding / norm if norm else None
+
+    def extract_single_face_embedding(self, image: np.ndarray) -> Optional[np.ndarray]:
+        """Detect exactly one face and return its normalized embedding."""
+        if self.face_detector is None:
+            return self.extract_embedding(image)
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        boxes = self.face_detector.detectMultiScale(
+            gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60)
+        )
+        if len(boxes) != 1:
+            return None
+        x, y, width, height = boxes[0]
+        return self.extract_embedding(image[y : y + height, x : x + width])
+
     def register_face(
         self, user_id: int, face_image: np.ndarray, name: str, employee_id: str
     ) -> Dict[str, Any]:
@@ -46,37 +74,18 @@ class CvPipeline:
         Extract face embedding from a registered face image.
         """
         try:
-            # Use InsightFace if available, otherwise DeepFace
-            embedding = None
-
-            if self.model is not None:
-                # Convert BGR to RGB for InsightFace
-                img_rgb = cv2.cvtColor(face_image, cv2.COLOR_BGR2RGB)
-                embedding = self.model.get_emb(img_rgb)
-                if isinstance(embedding, list):
-                    embedding = np.array(embedding)
-            else:
-                # Fallback to DeepFace
-                obj = DeepFace.represent(
-                    img_path=face_image,
-                    model_name="Facenet",
-                    enforce_detection=False,
-                )
-                if obj and len(obj) > 0:
-                    embedding = np.array(obj[0]["embedding"])
+            embedding = self.extract_embedding(face_image)
 
             if embedding is None:
                 return {"success": False, "error": "Could not extract face embedding"}
 
             # Normalize embedding for cosine similarity
-            embedding_norm = embedding / np.linalg.norm(embedding)
-
-            self.known_embeddings[user_id] = embedding_norm
+            self.known_embeddings[user_id] = embedding
             self.known_users[user_id] = {"name": name, "employee_id": employee_id}
 
             return {
                 "success": True,
-                "embedding_dimension": len(embedding_norm),
+                "embedding_dimension": len(embedding),
                 "message": f"Face embedding registered for user {user_id} ({name})",
             }
         except Exception as e:
@@ -88,29 +97,9 @@ class CvPipeline:
         Returns (user_id, confidence, user_info) or (None, None, None) if no match.
         """
         try:
-            # Extract embedding from live frame
-            embedding = None
-
-            if self.model is not None:
-                img_rgb = cv2.cvtColor(face_image, cv2.COLOR_BGR2RGB)
-                embedding = self.model.get_emb(img_rgb)
-                if isinstance(embedding, list):
-                    embedding = np.array(embedding)
-            else:
-                # Fallback to DeepFace
-                obj = DeepFace.represent(
-                    img_path=face_image,
-                    model_name="Facenet",
-                    enforce_detection=False,
-                )
-                if obj and len(obj) > 0:
-                    embedding = np.array(obj[0]["embedding"])
-
+            embedding = self.extract_embedding(face_image)
             if embedding is None:
                 return None, None, None
-
-            # Normalize the live embedding
-            embedding_norm = embedding / np.linalg.norm(embedding)
 
             # Compare against known embeddings using cosine similarity
             best_match_id = None
@@ -118,7 +107,7 @@ class CvPipeline:
 
             for uid, known_emb in self.known_embeddings.items():
                 # Cosine similarity: dot product of normalized vectors
-                similarity = float(np.dot(embedding_norm, known_emb))
+                similarity = float(np.dot(embedding, known_emb))
 
                 if similarity > best_similarity and similarity >= self.confidence_threshold:
                     best_similarity = similarity

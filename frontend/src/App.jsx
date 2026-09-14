@@ -11,8 +11,13 @@ function App() {
   const [employeeId, setEmployeeId] = useState("");
   const [employeeName, setEmployeeName] = useState("");
   const [faceMatches, setFaceMatches] = useState([]);
+  const [registration, setRegistration] = useState(null);
+  const [capturedAngles, setCapturedAngles] = useState([]);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+  const registrationRef = useRef(false);
+  const stableMatchRef = useRef({ id: null, count: 0 });
+  const attendanceCooldownRef = useRef(new Map());
 
   const employeesRef = {
     "EMP-001": { name: "John Doe", department: "Engineering" },
@@ -36,7 +41,7 @@ function App() {
       }
       streamRef.current = stream;
       setCameraActive(true);
-      setStatusMessage("Camera active - positioning for face recognition");
+        setStatusMessage("Camera active - positioning for face recognition");
       return stream;
     } catch (err) {
       setStatusMessage(`Camera error: ${err.message}`);
@@ -68,7 +73,34 @@ function App() {
       form.append("face_image", frame, "analysis.jpg");
       const response = await fetch(`${API_BASE}/analyze`, { method: "POST", body: form });
       if (!response.ok) throw new Error("Face analysis failed");
-      setFaceMatches((await response.json()).faces);
+      const faces = (await response.json()).faces;
+      setFaceMatches(faces);
+      const recognized = faces.find((face) => face.recognized);
+      if (recognized) {
+        const stable = stableMatchRef.current;
+        if (stable.id === recognized.user_id) {
+          stable.count += 1;
+        } else {
+          stable.id = recognized.user_id;
+          stable.count = 1;
+        }
+        const lastMarked = attendanceCooldownRef.current.get(recognized.employee_id) || 0;
+        if (stable.count >= 2 && Date.now() - lastMarked > 10 * 60 * 1000) {
+          const clockForm = new FormData();
+          clockForm.append("face_image", frame, "attendance.jpg");
+          const clockResponse = await fetch(
+            `${API_BASE}/clock-in?employee_id=${encodeURIComponent(recognized.employee_id)}`,
+            { method: "POST", body: clockForm },
+          );
+          if (clockResponse.ok) {
+            attendanceCooldownRef.current.set(recognized.employee_id, Date.now());
+            setStatusMessage(`${recognized.name} recognized; attendance marked automatically`);
+            await loadLogs();
+          }
+        }
+      } else {
+        stableMatchRef.current = { id: null, count: 0 };
+      }
     } catch (err) {
       if (cameraActive) setStatusMessage(`Analysis error: ${err.message}`);
     }
@@ -77,19 +109,44 @@ function App() {
   const handleEnroll = async () => {
     try {
       if (!employeeName || !employeeId) throw new Error("Enter employee name and ID");
-      const frame = await captureFrame();
+      if (!cameraActive) throw new Error("Start the camera first");
+      registrationRef.current = true;
+      setCapturedAngles([]);
+      const angles = [
+        ["center", "Look straight at the camera"],
+        ["left", "Turn your face slowly to the left"],
+        ["right", "Turn your face slowly to the right"],
+        ["up", "Look slightly up"],
+        ["down", "Look slightly down"],
+      ];
+      const frames = [];
+      for (const [key, instruction] of angles) {
+        setRegistration({ key, instruction, countdown: 3 });
+        for (let countdown = 3; countdown > 0; countdown -= 1) {
+          setRegistration({ key, instruction, countdown });
+          await new Promise((resolve) => window.setTimeout(resolve, 700));
+        }
+        frames.push(await captureFrame());
+        setCapturedAngles((current) => [...current, key]);
+      }
       const form = new FormData();
-      form.append("face_images", frame, "face.jpg");
+      frames.forEach((frame, index) => form.append("face_images", frame, `${angles[index][0]}.jpg`));
       const response = await fetch(
         `${API_BASE}/register?name=${encodeURIComponent(employeeName)}&employee_id=${encodeURIComponent(employeeId)}`,
         { method: "POST", body: form },
       );
       if (!response.ok) throw new Error((await response.json()).detail || "Registration failed");
       setStatusMessage("Employee registered successfully");
+      setRegistration(null);
+      setCapturedAngles([]);
       setEmployeeName("");
       await loadEmployees();
     } catch (err) {
       setStatusMessage(`Registration error: ${err.message}`);
+      setRegistration(null);
+      setCapturedAngles([]);
+    } finally {
+      registrationRef.current = false;
     }
   };
 
@@ -164,7 +221,9 @@ function App() {
       setFaceMatches([]);
       return undefined;
     }
-    const timer = window.setInterval(analyzeCurrentFrame, 1500);
+    const timer = window.setInterval(() => {
+      if (!registrationRef.current) analyzeCurrentFrame();
+    }, 1500);
     return () => window.clearInterval(timer);
   }, [cameraActive]);
 
@@ -205,6 +264,13 @@ function App() {
                   </span>
                 </div>
               ))}
+              {registration && (
+                <div className="registration-guide">
+                  <strong>{registration.instruction}</strong>
+                  <span>Capturing in {registration.countdown}...</span>
+                  <small>{capturedAngles.length}/5 angles captured</small>
+                </div>
+              )}
             </div>
           ) : (
             <div className="camera-placeholder">

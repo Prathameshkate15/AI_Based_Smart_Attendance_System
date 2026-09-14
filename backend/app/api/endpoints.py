@@ -84,8 +84,14 @@ async def register_user(
             detail="Employee ID already registered",
         )
 
-    # Process face images and extract embeddings
-    user_id = None
+    if len(face_images) < 5:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Capture at least five face images: center, left, right, up, and down",
+        )
+
+    # Require one detectable face per angle, then average normalized vectors.
+    embeddings = []
     for i, face_image in enumerate(face_images):
         # Read the uploaded file
         contents = await face_image.read()
@@ -102,45 +108,32 @@ async def register_user(
                 detail=f"Image {i+1} could not be decoded",
             )
 
-        # Register face and extract embedding
-        result = cv_pipeline.register_face(
-            user_id=i if user_id is None else user_id,
-            face_image=img,
-            name=name,
-            employee_id=employee_id,
-        )
-
-        if not result["success"]:
+        embedding = cv_pipeline.extract_single_face_embedding(img)
+        if embedding is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Face registration failed: {result['error']}",
+                detail=f"Image {i + 1} must contain exactly one clearly visible face",
             )
-
-        # Assign user_id from the first successful registration
-        if user_id is None:
-            user_id = i  # Simple indexing
+        embeddings.append(embedding)
 
     # Create user in database
-    from sqlalchemy import select
     new_user = User(name=name, employee_id=employee_id)
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    embedding = cv_pipeline.known_embeddings.get(user_id)
-    if embedding is not None:
-        new_user.face_embedding = json.dumps(embedding.tolist())
-        cv_pipeline.known_embeddings[new_user.id] = embedding
-        cv_pipeline.known_users[new_user.id] = {"name": name, "employee_id": employee_id}
-        if user_id != new_user.id:
-            cv_pipeline.known_embeddings.pop(user_id, None)
-            cv_pipeline.known_users.pop(user_id, None)
-        db.commit()
+    embedding = np.mean(np.stack(embeddings), axis=0)
+    embedding /= np.linalg.norm(embedding)
+    new_user.face_embedding = json.dumps(embedding.tolist())
+    cv_pipeline.known_embeddings[new_user.id] = embedding
+    cv_pipeline.known_users[new_user.id] = {"name": name, "employee_id": employee_id}
+    db.commit()
 
     return {
         "user_id": new_user.id,
         "name": new_user.name,
         "employee_id": new_user.employee_id,
         "embedding_dimension": len(embedding) if embedding is not None else 0,
+        "captured_angles": len(embeddings),
         "message": f"Employee {name} registered successfully",
     }
 
@@ -204,6 +197,11 @@ async def clock_in(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Employee not found in database",
+        )
+    if user.id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="The recognized face does not match the requested employee",
         )
 
     # Record attendance log

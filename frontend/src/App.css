@@ -72,6 +72,28 @@ main {
   white-space: nowrap;
 }
 
+.registration-guide {
+  position: absolute;
+  inset: 1rem 1rem auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.8rem 1rem;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.78);
+  color: white;
+  text-align: center;
+}
+
+.registration-guide span {
+  color: #f1c40f;
+  font-size: 1.1rem;
+}
+
+.registration-guide small {
+  color: #bdc3c7;
+}
+
 .camera-placeholder {
   padding: 2rem;
   text-align: center;
