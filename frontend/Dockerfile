@@ -1,10 +1,10 @@
 FROM node:20-alpine AS build
 
 WORKDIR /app
-COPY package.json bun.lock ./
-RUN corepack enable && corepack prepare bun@1.1.38 --activate && bun install --frozen-lockfile
+COPY package.json ./
+RUN npm install
 COPY . .
-RUN bun run build
+RUN npm run build
 
 FROM nginx:1.27-alpine
 COPY --from=build /app/dist /usr/share/nginx/html
