@@ -8,9 +8,6 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: sqlite:///./attendance.db
-    volumes:
-      - attendance-data:/app
-
   frontend:
     build:
       context: ./frontend
@@ -19,6 +16,3 @@ services:
       - "3000:80"
     depends_on:
       - api
-
-volumes:
-  attendance-data:

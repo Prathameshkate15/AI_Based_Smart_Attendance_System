@@ -1,6 +1,7 @@
 # Core FastAPI
 fastapi
 uvicorn[standard]
+python-multipart
 
 # Computer Vision & AI
 opencv-python

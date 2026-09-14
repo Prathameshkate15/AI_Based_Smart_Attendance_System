@@ -21,14 +21,18 @@ function App() {
 
   const handleStartCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "environment",
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-        },
-        audio: false,
-      });
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("Camera access is unavailable. Use HTTPS or localhost.");
+      }
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          audio: false,
+        });
+      } catch (constraintError) {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      }
       streamRef.current = stream;
       setCameraActive(true);
       setStatusMessage("Camera active - positioning for face recognition");
@@ -132,6 +136,15 @@ function App() {
     loadLogs();
   }, []);
 
+  useEffect(() => {
+    if (!cameraActive || !videoRef.current || !streamRef.current) return undefined;
+    videoRef.current.srcObject = streamRef.current;
+    videoRef.current.play().catch(() => {
+      setStatusMessage("Camera is ready. Click the video to start playback.");
+    });
+    return undefined;
+  }, [cameraActive]);
+
   return (
     <div className="app-container">
       <header>
@@ -149,9 +162,6 @@ function App() {
               playsInline
               style={{ width: "100%", height: "400px" }}
               muted
-              onLoadedMetadata={() => {
-                videoRef.current.srcObject = streamRef.current;
-              }}
             />
           ) : (
             <div className="camera-placeholder">
