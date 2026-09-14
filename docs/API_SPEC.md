@@ -99,6 +99,23 @@ HTTP status codes:
 ### POST /clock-in
 **Clock in for an employee** via face verification.
 
+### POST /clock-out
+**Clock out an employee's most recent open attendance log.**
+
+Query parameter:
+- `employee_id` - registered employee identifier
+
+**Response (200 OK):**
+```json
+{
+  "log_id": 1,
+  "employee_id": "EMP-001",
+  "name": "John Doe",
+  "clock_out": "2026-09-14T17:30:00+00:00",
+  "message": "Clock-out successful for John Doe"
+}
+```
+
 **Request Body:**
 ```json
 {

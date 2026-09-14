@@ -17,12 +17,13 @@
 
 | # | Task | Description | Dependencies |
 |---|------|-------------|------------|
-| **7** | Testing strategy: Unit, integration, and E2E tests | pytest unit tests, API endpoint tests, CV pipeline tests, E2E test suite | Tasks 1-6 complete; requires `pytest`, `httpx`, `playwright` or `cypress` |
-| **8** | Documentation: All living docs and contributing guide | ARCHITECTURE.md, API_SPEC.md, DEPLOYMENT.md, CONTRIBUTING.md, onboarding guide | Tasks 1-7 complete; requires MkDocs or similar for doc generation |
+| **7** | Testing strategy: Unit, integration, and E2E tests | pytest unit tests, API endpoint tests, CV pipeline tests, and verified frontend production build | Tasks 1-6 complete |
+| **8** | Documentation: All living docs and contributing guide | ARCHITECTURE.md, API_SPEC.md, DEPLOYMENT.md, CONTRIBUTING.md, onboarding guide | Tasks 1-7 complete |
 
-### 🔄 In Progress
-- **Git commits** - Initial commits completed for tasks 1-6; task 7 tests created but not yet executed
-- **Docker compose** - Basic scaffold ready; full production deployment configuration pending
+### ✅ Completed
+- **Git commits** - Reversible checkpoint and completion commit created
+- **Docker Compose** - Backend and frontend services are defined and configuration-validated
+- **Local run verification** - API health and frontend development server both respond successfully
 
 ---
 

@@ -1,11 +1,17 @@
-import React, { useState, useEffect } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import "./App.css";
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api/v1";
 
 function App() {
   const [cameraActive, setCameraActive] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [employees, setEmployees] = useState([]);
   const [logs, setLogs] = useState([]);
+  const [employeeId, setEmployeeId] = useState("");
+  const [employeeName, setEmployeeName] = useState("");
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
 
   const employeesRef = {
     "EMP-001": { name: "John Doe", department: "Engineering" },
@@ -23,6 +29,7 @@ function App() {
         },
         audio: false,
       });
+      streamRef.current = stream;
       setCameraActive(true);
       setStatusMessage("Camera active - positioning for face recognition");
       return stream;
@@ -33,59 +40,91 @@ function App() {
   };
 
   const handleStopCamera = () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
     setCameraActive(false);
     setStatusMessage("Camera stopped");
   };
 
-  const handleEnroll = async (stream) => {
-    setStatusMessage("Processing face enrollment...");
-    // TODO: Send frame to backend /api/v1/register
-    // with employee name + employee_id + captured frame
-    setStatusMessage("Employee enrollment initiated");
-    // In a full implementation, would capture canvas frame and POST
+  const captureFrame = () => {
+    const video = videoRef.current;
+    if (!video || video.readyState < 2) throw new Error("Camera frame is not ready");
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d").drawImage(video, 0, 0);
+    return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
   };
 
-  const handleClockIn = async (stream) => {
-    setStatusMessage("Verifying face for clock-in...");
-    // TODO: Send frame to backend /api/v1/clock-in
-    // with employee_id and live frame for verification
-    // Backend returns: { log_id, employee_id, name, confidence, clock_in }
-    setStatusMessage("Clock-in request sent");
+  const handleEnroll = async () => {
+    try {
+      if (!employeeName || !employeeId) throw new Error("Enter employee name and ID");
+      const frame = await captureFrame();
+      const form = new FormData();
+      form.append("face_images", frame, "face.jpg");
+      const response = await fetch(
+        `${API_BASE}/register?name=${encodeURIComponent(employeeName)}&employee_id=${encodeURIComponent(employeeId)}`,
+        { method: "POST", body: form },
+      );
+      if (!response.ok) throw new Error((await response.json()).detail || "Registration failed");
+      setStatusMessage("Employee registered successfully");
+      setEmployeeName("");
+      await loadEmployees();
+    } catch (err) {
+      setStatusMessage(`Registration error: ${err.message}`);
+    }
   };
 
-  const handleClockOut = async (stream) => {
-    setStatusMessage("Verifying face for clock-out...");
-    // TODO: Send frame to backend /api/v1/clock-out
-    setStatusMessage("Clock-out request sent");
+  const handleClockIn = async () => {
+    try {
+      if (!employeeId) throw new Error("Enter an employee ID");
+      const frame = await captureFrame();
+      const form = new FormData();
+      form.append("face_image", frame, "face.jpg");
+      const response = await fetch(`${API_BASE}/clock-in?employee_id=${encodeURIComponent(employeeId)}`, {
+        method: "POST",
+        body: form,
+      });
+      if (!response.ok) throw new Error((await response.json()).detail || "Clock-in failed");
+      setStatusMessage((await response.json()).message);
+      await loadLogs();
+    } catch (err) {
+      setStatusMessage(`Clock-in error: ${err.message}`);
+    }
   };
 
-  const loadEmployees = () => {
-    setEmployees(
-      Object.entries(employeesRef).map(([id, info]) => ({
-        id,
-        ...info,
-      }))
-    );
+  const handleClockOut = async () => {
+    try {
+      if (!employeeId) throw new Error("Enter an employee ID");
+      const response = await fetch(`${API_BASE}/clock-out?employee_id=${encodeURIComponent(employeeId)}`, {
+        method: "POST",
+      });
+      if (!response.ok) throw new Error((await response.json()).detail || "Clock-out failed");
+      setStatusMessage((await response.json()).message);
+      await loadLogs();
+    } catch (err) {
+      setStatusMessage(`Clock-out error: ${err.message}`);
+    }
   };
 
-  const loadLogs = () => {
-    // TODO: Fetch from /api/v1/logs
-    setLogs([
-      {
-        id: 1,
-        employee_id: "EMP-001",
-        name: "John Doe",
-        clock_in: "2026-09-13T08:30:00Z",
-        confidence: 0.94,
-      },
-      {
-        id: 2,
-        employee_id: "EMP-002",
-        name: "Jane Smith",
-        clock_in: "2026-09-13T08:25:00Z",
-        confidence: 0.92,
-      },
-    ]);
+  const loadEmployees = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/users`);
+      if (!response.ok) throw new Error("Could not load employees");
+      setEmployees(await response.json());
+    } catch (err) {
+      setStatusMessage(`Employee load error: ${err.message}`);
+    }
+  };
+
+  const loadLogs = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/logs`);
+      if (!response.ok) throw new Error("Could not load attendance logs");
+      setLogs(await response.json());
+    } catch (err) {
+      setStatusMessage(`Log load error: ${err.message}`);
+    }
   };
 
   useEffect(() => {
@@ -105,14 +144,15 @@ function App() {
           <h2>Live Camera Feed</h2>
           {cameraActive ? (
             <video
-              autoplay
+              ref={videoRef}
+              autoPlay
               playsInline
               style={{ width: "100%", height: "400px" }}
               muted
-            >
-              <source srcObject={null} type="video/mp4" />
-              Your browser does not support the video tag.
-            </video>
+              onLoadedMetadata={() => {
+                videoRef.current.srcObject = streamRef.current;
+              }}
+            />
           ) : (
             <div className="camera-placeholder">
               <p>Click "Start Camera" to begin biometric tracking</p>
@@ -135,16 +175,18 @@ function App() {
         </section>
 
         <section className="controls-section">
+          <input value={employeeName} onChange={(event) => setEmployeeName(event.target.value)} placeholder="Employee name" />
+          <input value={employeeId} onChange={(event) => setEmployeeId(event.target.value)} placeholder="Employee ID" />
           <div style={{ marginBottom: "1rem" }}>
             <button
-              onClick={() => handleEnroll(cameraActive ? "stream" : null)}
+              onClick={handleEnroll}
               className="secondary-btn"
               disabled={!cameraActive}
             >
               📸 Register Employee
             </button>
             <button
-              onClick={() => handleClockIn(cameraActive ? "stream" : null)}
+              onClick={handleClockIn}
               className="primary-btn"
               disabled={!cameraActive}
             >

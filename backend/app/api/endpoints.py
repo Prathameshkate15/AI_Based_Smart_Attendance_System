@@ -187,6 +187,42 @@ async def clock_in(
     }
 
 
+@router.post("/clock-out", response_model=dict)
+async def clock_out(
+    employee_id: str,
+    db: Session = Depends(get_db),
+):
+    """Clock out an employee's most recent open attendance log."""
+    from datetime import datetime, timezone
+    from sqlalchemy import select
+
+    user_result = db.execute(select(User).where(User.employee_id == employee_id))
+    user = user_result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+
+    log_result = db.execute(
+        select(AttendanceLog)
+        .where(AttendanceLog.user_id == user.id, AttendanceLog.clock_out.is_(None))
+        .order_by(AttendanceLog.clock_in.desc())
+    )
+    log = log_result.scalars().first()
+    if log is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No open attendance log")
+
+    log.clock_out = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(log)
+    return {
+        "log_id": log.id,
+        "user_id": user.id,
+        "employee_id": user.employee_id,
+        "name": user.name,
+        "clock_out": log.clock_out.isoformat(),
+        "message": f"Clock-out successful for {user.name}",
+    }
+
+
 @router.get("/logs", response_model=List[dict])
 async def get_attendance_logs(
     skip: int = 0,
