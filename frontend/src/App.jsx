@@ -10,6 +10,7 @@ function App() {
   const [logs, setLogs] = useState([]);
   const [employeeId, setEmployeeId] = useState("");
   const [employeeName, setEmployeeName] = useState("");
+  const [faceMatches, setFaceMatches] = useState([]);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
 
@@ -58,6 +59,19 @@ function App() {
     canvas.height = video.videoHeight;
     canvas.getContext("2d").drawImage(video, 0, 0);
     return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+  };
+
+  const analyzeCurrentFrame = async () => {
+    try {
+      const frame = await captureFrame();
+      const form = new FormData();
+      form.append("face_image", frame, "analysis.jpg");
+      const response = await fetch(`${API_BASE}/analyze`, { method: "POST", body: form });
+      if (!response.ok) throw new Error("Face analysis failed");
+      setFaceMatches((await response.json()).faces);
+    } catch (err) {
+      if (cameraActive) setStatusMessage(`Analysis error: ${err.message}`);
+    }
   };
 
   const handleEnroll = async () => {
@@ -145,6 +159,15 @@ function App() {
     return undefined;
   }, [cameraActive]);
 
+  useEffect(() => {
+    if (!cameraActive) {
+      setFaceMatches([]);
+      return undefined;
+    }
+    const timer = window.setInterval(analyzeCurrentFrame, 1500);
+    return () => window.clearInterval(timer);
+  }, [cameraActive]);
+
   return (
     <div className="app-container">
       <header>
@@ -156,13 +179,33 @@ function App() {
         <section className="camera-section">
           <h2>Live Camera Feed</h2>
           {cameraActive ? (
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              style={{ width: "100%", height: "400px" }}
-              muted
-            />
+            <div className="video-wrapper">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                style={{ width: "100%", height: "400px" }}
+                muted
+              />
+              {faceMatches.map((face, index) => (
+                <div
+                  className={`face-box ${face.recognized ? "recognized" : "unknown"}`}
+                  key={`${face.box.x}-${face.box.y}-${index}`}
+                  style={{
+                    left: `${(face.box.x / (videoRef.current?.videoWidth || 1)) * 100}%`,
+                    top: `${(face.box.y / (videoRef.current?.videoHeight || 1)) * 100}%`,
+                    width: `${(face.box.width / (videoRef.current?.videoWidth || 1)) * 100}%`,
+                    height: `${(face.box.height / (videoRef.current?.videoHeight || 1)) * 100}%`,
+                  }}
+                >
+                  <span>
+                    {face.recognized
+                      ? `${face.name} (${face.employee_id}) ${Math.round(face.confidence * 100)}%`
+                      : "Unknown"}
+                  </span>
+                </div>
+              ))}
+            </div>
           ) : (
             <div className="camera-placeholder">
               <p>Click "Start Camera" to begin biometric tracking</p>

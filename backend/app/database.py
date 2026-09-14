@@ -1,11 +1,12 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
+import os
 
 # Database configuration
 # Using PostgreSQL for production, SQLite for development/demo
 # In Docker: postgres://postgres:postgres@postgres:5432/attendance
 # For local development:
-SQLALCHEMY_DATABASE_URL = "sqlite:///./attendance.db"
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./attendance.db")
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,

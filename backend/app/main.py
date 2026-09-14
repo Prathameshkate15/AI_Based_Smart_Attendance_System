@@ -10,9 +10,13 @@ from .api.endpoints import router as api_router
 from .database import get_db, engine
 from .models.user import Base
 from sqlalchemy.orm import Session
+from sqlalchemy import inspect, text
 
 # Initialize database tables
 Base.metadata.create_all(bind=engine)
+if "face_embedding" not in {column["name"] for column in inspect(engine).get_columns("users")}:
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE users ADD COLUMN face_embedding TEXT"))
 
 app = FastAPI(
     title="Smart Attendance Management System API",

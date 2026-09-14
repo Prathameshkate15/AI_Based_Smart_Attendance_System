@@ -3,6 +3,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any
+import json
+import numpy as np
 
 from ..database import get_db
 from ..models.user import User, AttendanceLog
@@ -14,9 +16,27 @@ cv_pipeline = CvPipeline(confidence_threshold=0.5, liveness_threshold=0.7)
 router = APIRouter(tags=["v1"])
 
 
+def load_database_embeddings(db: Session) -> None:
+    """Load persisted face vectors so recognition survives API restarts."""
+    users = db.query(User.id, User.name, User.employee_id, User.face_embedding).filter(
+        User.face_embedding.isnot(None)
+    ).all()
+    for user in users:
+        try:
+            embedding = np.asarray(json.loads(user.face_embedding), dtype=np.float32)
+            cv_pipeline.known_embeddings[user.id] = embedding
+            cv_pipeline.known_users[user.id] = {
+                "name": user.name,
+                "employee_id": user.employee_id,
+            }
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+
+
 @router.get("/health", include_in_schema=False)
-async def health():
+async def health(db: Session = Depends(get_db)):
     """Health check endpoint."""
+    load_database_embeddings(db)
     system_status = cv_pipeline.get_system_status()
     return {
         "status": "healthy",
@@ -24,6 +44,20 @@ async def health():
         "known_users": system_status["known_users_count"],
         "pipeline_ready": system_status["pipeline_ready"],
     }
+
+
+@router.post("/analyze", response_model=dict)
+async def analyze_frame(face_image: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Detect faces in a frame and match each one against registered embeddings."""
+    import cv2
+    import numpy as np
+
+    contents = await face_image.read()
+    image = cv2.imdecode(np.frombuffer(contents, np.uint8), cv2.IMREAD_COLOR)
+    if image is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Could not decode face image")
+    load_database_embeddings(db)
+    return {"faces": cv_pipeline.analyze_faces(image)}
 
 
 @router.post("/register", response_model=dict, status_code=status.HTTP_201_CREATED)
@@ -92,14 +126,21 @@ async def register_user(
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+    embedding = cv_pipeline.known_embeddings.get(user_id)
+    if embedding is not None:
+        new_user.face_embedding = json.dumps(embedding.tolist())
+        cv_pipeline.known_embeddings[new_user.id] = embedding
+        cv_pipeline.known_users[new_user.id] = {"name": name, "employee_id": employee_id}
+        if user_id != new_user.id:
+            cv_pipeline.known_embeddings.pop(user_id, None)
+            cv_pipeline.known_users.pop(user_id, None)
+        db.commit()
 
     return {
         "user_id": new_user.id,
         "name": new_user.name,
         "employee_id": new_user.employee_id,
-        "embedding_dimension": cv_pipeline.known_embeddings.get(user_id, {}).get(
-            "embedding_dimension", 128
-        ),
+        "embedding_dimension": len(embedding) if embedding is not None else 0,
         "message": f"Employee {name} registered successfully",
     }
 

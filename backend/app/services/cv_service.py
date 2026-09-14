@@ -32,6 +32,12 @@ class CvPipeline:
 
         self.known_embeddings: Dict[int, np.ndarray] = {}  # user_id -> embedding vector
         self.known_users: Dict[int, Dict[str, Any]] = {}  # user_id -> name, employee_id
+        cascade_classifier = getattr(cv2, "CascadeClassifier", None)
+        self.face_detector = (
+            cascade_classifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+            if cascade_classifier
+            else None
+        )
 
     def register_face(
         self, user_id: int, face_image: np.ndarray, name: str, employee_id: str
@@ -126,6 +132,35 @@ class CvPipeline:
 
         except Exception as e:
             return None, None, None
+
+    def analyze_faces(self, image: np.ndarray) -> List[Dict[str, Any]]:
+        """Detect all faces and match each face against registered embeddings."""
+        if self.face_detector is None:
+            return []
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        boxes = self.face_detector.detectMultiScale(
+            gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60)
+        )
+        matches = []
+        for x, y, width, height in boxes:
+            crop = image[y : y + height, x : x + width]
+            user_id, confidence, user_info = self.verify_face(crop)
+            matches.append(
+                {
+                    "box": {
+                        "x": int(x),
+                        "y": int(y),
+                        "width": int(width),
+                        "height": int(height),
+                    },
+                    "user_id": user_id,
+                    "employee_id": user_info.get("employee_id") if user_info else None,
+                    "name": user_info.get("name") if user_info else "Unknown",
+                    "confidence": round(confidence, 4) if confidence is not None else None,
+                    "recognized": user_id is not None,
+                }
+            )
+        return matches
 
     def check_liveness(
         self, face_image_sequence: List[np.ndarray]
