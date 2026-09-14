@@ -13,6 +13,7 @@ function App() {
   const [faceMatches, setFaceMatches] = useState([]);
   const [registration, setRegistration] = useState(null);
   const [capturedAngles, setCapturedAngles] = useState([]);
+  const [attendanceNotice, setAttendanceNotice] = useState(null);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const registrationRef = useRef(false);
@@ -93,8 +94,10 @@ function App() {
             { method: "POST", body: clockForm },
           );
           if (clockResponse.ok) {
+            const attendance = await clockResponse.json();
             attendanceCooldownRef.current.set(recognized.employee_id, Date.now());
-            setStatusMessage(`${recognized.name} recognized; attendance marked automatically`);
+            setAttendanceNotice(attendance);
+            setStatusMessage("Attendance marked automatically");
             await loadLogs();
           }
         }
@@ -161,7 +164,9 @@ function App() {
         body: form,
       });
       if (!response.ok) throw new Error((await response.json()).detail || "Clock-in failed");
-      setStatusMessage((await response.json()).message);
+      const attendance = await response.json();
+      setAttendanceNotice(attendance);
+      setStatusMessage("Attendance marked successfully");
       await loadLogs();
     } catch (err) {
       setStatusMessage(`Clock-in error: ${err.message}`);
@@ -229,14 +234,45 @@ function App() {
 
   return (
     <div className="app-container">
-      <header>
-        <h1>🏢 Smart Attendance System</h1>
-        <p>Biometric-based automated attendance tracking</p>
+      <header className="app-header">
+        <div className="brand">
+          <div className="brand-mark">✓</div>
+          <div>
+            <h1>Smart Attendance</h1>
+            <p>Biometric attendance, made simple</p>
+          </div>
+        </div>
+        <div className={`system-pill ${cameraActive ? "online" : ""}`}>
+          <span />
+          {cameraActive ? "Camera online" : "Camera offline"}
+        </div>
       </header>
 
       <main>
+        {attendanceNotice && (
+          <section className="attendance-notice" role="status">
+            <div className="success-icon">✓</div>
+            <div className="attendance-copy">
+              <strong>Attendance marked</strong>
+              <span>{attendanceNotice.name || "Employee"} is checked in successfully</span>
+              <div className="attendance-meta">
+                <b>ID: {attendanceNotice.employee_id}</b>
+                <span>{attendanceNotice.clock_in ? new Date(attendanceNotice.clock_in).toLocaleTimeString() : "Just now"}</span>
+                {attendanceNotice.confidence && <span>{Math.round(attendanceNotice.confidence * 100)}% match</span>}
+              </div>
+            </div>
+            <button className="notice-dismiss" onClick={() => setAttendanceNotice(null)} aria-label="Dismiss attendance confirmation">×</button>
+          </section>
+        )}
+
         <section className="camera-section">
-          <h2>Live Camera Feed</h2>
+          <div className="section-heading">
+            <div>
+              <span className="eyebrow">RECOGNITION</span>
+              <h2>Live camera feed</h2>
+            </div>
+            <span className="scan-state">{cameraActive ? "Scanning for faces" : "Ready to scan"}</span>
+          </div>
           {cameraActive ? (
             <div className="video-wrapper">
               <video
@@ -274,7 +310,9 @@ function App() {
             </div>
           ) : (
             <div className="camera-placeholder">
-              <p>Click "Start Camera" to begin biometric tracking</p>
+              <div className="camera-placeholder-icon">◉</div>
+              <strong>Start your camera to begin</strong>
+              <p>Position your face inside the frame for automatic recognition.</p>
               <button
                 onClick={() => handleStartCamera()}
                 className="primary-btn"
@@ -282,52 +320,61 @@ function App() {
               >
                 Start Camera
               </button>
-              <button
-                onClick={handleStopCamera}
-                className="secondary-btn"
-                disabled={!cameraActive}
-              >
-                Stop Camera
-              </button>
             </div>
           )}
+          {cameraActive && <button onClick={handleStopCamera} className="stop-camera">Stop camera</button>}
         </section>
 
         <section className="controls-section">
-          <input value={employeeName} onChange={(event) => setEmployeeName(event.target.value)} placeholder="Employee name" />
-          <input value={employeeId} onChange={(event) => setEmployeeId(event.target.value)} placeholder="Employee ID" />
-          <div style={{ marginBottom: "1rem" }}>
+          <div className="control-card registration-card">
+            <span className="card-icon">＋</span>
+            <div>
+              <h3>Register employee</h3>
+              <p>Capture five angles for a reliable match.</p>
+            </div>
+            <input value={employeeName} onChange={(event) => setEmployeeName(event.target.value)} placeholder="Full name" />
+            <input value={employeeId} onChange={(event) => setEmployeeId(event.target.value)} placeholder="Employee ID" />
             <button
               onClick={handleEnroll}
               className="secondary-btn"
               disabled={!cameraActive}
             >
-              📸 Register Employee
+              Register employee
             </button>
+          </div>
+          <div className="control-card">
+            <span className="card-icon">◷</span>
+            <div>
+              <h3>Manual attendance</h3>
+              <p>Use this when automatic recognition needs help.</p>
+            </div>
             <button
               onClick={handleClockIn}
               className="primary-btn"
               disabled={!cameraActive}
             >
-              🕐 Clock In
+              Clock in
             </button>
             <button
               onClick={handleClockOut}
               className="secondary-btn"
               disabled={!cameraActive}
             >
-              🕓 Clock Out
+              Clock out
             </button>
           </div>
         </section>
 
         <section className="status-section">
-          <h3>System Status</h3>
+          <span className="status-dot" />
+          <div><h3>System status</h3>
           <p>{statusMessage}</p>
+          </div>
         </section>
 
-        <section className="employees-section">
-          <h3>Registered Employees</h3>
+        <section className="data-grid">
+        <section className="employees-section data-card">
+          <div className="card-heading"><h3>Registered employees</h3><span>{employees.length}</span></div>
           <ul>
             {employees.map((emp) => (
               <li key={emp.id} style={{ marginBottom: "0.5rem" }}>
@@ -341,8 +388,8 @@ function App() {
           </p>
         </section>
 
-        <section className="logs-section">
-          <h3>Attendance Logs</h3>
+        <section className="logs-section data-card">
+          <div className="card-heading"><h3>Recent attendance</h3><span>{logs.length}</span></div>
           <ul>
             {logs.map((log) => (
               <li key={log.id} style={{ marginBottom: "0.5rem" }}>
@@ -355,6 +402,7 @@ function App() {
             ))}
             {logs.length === 0 && <li>No attendance records yet</li>}
           </ul>
+        </section>
         </section>
       </main>
 
