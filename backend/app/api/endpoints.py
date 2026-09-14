@@ -232,25 +232,26 @@ async def get_attendance_logs(
     """Retrieve attendance logs with pagination."""
     from sqlalchemy import select, desc
     result = db.execute(
-        select(AttendanceLog)
+        select(AttendanceLog, User)
+        .join(User, User.id == AttendanceLog.user_id)
         .order_by(desc(AttendanceLog.created_at))
         .offset(skip)
         .limit(limit)
     )
-    logs = result.scalars().all()
+    logs = result.all()
 
     return [
         {
             "id": log.id,
             "user_id": log.user_id,
-            "employee_id": log.user.employee_id if log.user else None,
-            "name": log.user.name if log.user else None,
+            "employee_id": user.employee_id,
+            "name": user.name,
             "clock_in": log.clock_in.isoformat() if log.clock_in else None,
             "clock_out": log.clock_out.isoformat() if log.clock_out else None,
             "confidence": log.confidence,
             "created_at": log.created_at.isoformat() if log.created_at else None,
         }
-        for log in logs
+        for log, user in logs
     ]
 
 
