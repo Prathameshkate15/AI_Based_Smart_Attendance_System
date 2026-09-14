@@ -146,7 +146,8 @@ function App() {
 
   const handleEnroll = async () => {
     try {
-      if (!employeeName || !employeeId) throw new Error("Enter employee name and ID");
+      if (!adminToken || view !== "admin") throw new Error("Open Admin login to register employees");
+      if (!employeeName.trim() || !employeeId.trim()) throw new Error("Enter employee name and ID");
       if (!cameraActive) throw new Error("Start the camera first");
       registrationRef.current = true;
       setCapturedAngles([]);
@@ -173,7 +174,10 @@ function App() {
         `${API_BASE}/register?name=${encodeURIComponent(employeeName)}&employee_id=${encodeURIComponent(employeeId)}`,
         { method: "POST", body: form },
       );
-      if (!response.ok) throw new Error((await response.json()).detail || "Registration failed");
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.detail || "Registration failed");
+      }
       setStatusMessage("Employee registered successfully");
       setRegistration(null);
       setCapturedAngles([]);
@@ -225,6 +229,10 @@ function App() {
   const loadEmployees = async () => {
     try {
       const response = await adminFetch(`${API_BASE}/users`);
+      if (response.status === 401) {
+        handleLogout();
+        throw new Error("Admin session expired; please sign in again");
+      }
       if (!response.ok) throw new Error("Could not load employees");
       setEmployees(await response.json());
     } catch (err) {
@@ -235,6 +243,10 @@ function App() {
   const loadLogs = async () => {
     try {
       const response = await adminFetch(`${API_BASE}/logs`);
+      if (response.status === 401) {
+        handleLogout();
+        throw new Error("Admin session expired; please sign in again");
+      }
       if (!response.ok) throw new Error("Could not load attendance logs");
       setLogs(await response.json());
     } catch (err) {

@@ -34,6 +34,9 @@ async def admin_login(username: str = Form(...), password: str = Form(...)):
 
 def load_database_embeddings(db: Session) -> None:
     """Load persisted face vectors so recognition survives API restarts."""
+    # Rebuild the in-memory index so deleted employees cannot remain recognizable.
+    cv_pipeline.known_embeddings.clear()
+    cv_pipeline.known_users.clear()
     users = db.query(User.id, User.name, User.employee_id, User.face_embedding).filter(
         User.face_embedding.isnot(None)
     ).all()
@@ -354,6 +357,8 @@ async def delete_user(
     db.execute(sql_delete(AttendanceLog).where(AttendanceLog.user_id == user_id))
     db.delete(user)
     db.commit()
+    cv_pipeline.known_embeddings.pop(user_id, None)
+    cv_pipeline.known_users.pop(user_id, None)
 
     return None
 
