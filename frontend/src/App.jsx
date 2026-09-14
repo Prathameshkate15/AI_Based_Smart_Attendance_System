@@ -15,6 +15,10 @@ function App() {
   const [capturedAngles, setCapturedAngles] = useState([]);
   const [attendanceNotice, setAttendanceNotice] = useState(null);
   const [adminToken, setAdminToken] = useState(() => sessionStorage.getItem("adminToken"));
+  const [view, setView] = useState("landing");
+  const [captureDuration, setCaptureDuration] = useState(
+    () => Number(localStorage.getItem("captureDuration")) || 7.5,
+  );
   const [login, setLogin] = useState({ username: "", password: "" });
   const [loginError, setLoginError] = useState("");
   const videoRef = useRef(null);
@@ -42,11 +46,13 @@ function App() {
     const data = await response.json();
     sessionStorage.setItem("adminToken", data.token);
     setAdminToken(data.token);
+    setView("admin");
   };
 
   const handleLogout = () => {
     sessionStorage.removeItem("adminToken");
     setAdminToken(null);
+    setView("landing");
   };
 
   const employeesRef = {
@@ -127,7 +133,7 @@ function App() {
             attendanceCooldownRef.current.set(recognized.employee_id, Date.now());
             setAttendanceNotice(attendance);
             setStatusMessage("Attendance marked automatically");
-            await loadLogs();
+            if (adminToken) await loadLogs();
           }
         }
       } else {
@@ -153,8 +159,8 @@ function App() {
       ];
       const frames = [];
       for (const [key, instruction] of angles) {
-        setRegistration({ key, instruction, countdown: 7.5 });
-        for (let countdown = 7.5; countdown > 0; countdown -= 0.5) {
+        setRegistration({ key, instruction, countdown: captureDuration });
+        for (let countdown = captureDuration; countdown > 0; countdown -= 0.5) {
           setRegistration({ key, instruction, countdown });
           await new Promise((resolve) => window.setTimeout(resolve, 500));
         }
@@ -196,7 +202,7 @@ function App() {
       const attendance = await response.json();
       setAttendanceNotice(attendance);
       setStatusMessage("Attendance marked successfully");
-      await loadLogs();
+      if (adminToken) await loadLogs();
     } catch (err) {
       setStatusMessage(`Clock-in error: ${err.message}`);
     }
@@ -210,7 +216,7 @@ function App() {
       });
       if (!response.ok) throw new Error((await response.json()).detail || "Clock-out failed");
       setStatusMessage((await response.json()).message);
-      await loadLogs();
+      if (adminToken) await loadLogs();
     } catch (err) {
       setStatusMessage(`Clock-out error: ${err.message}`);
     }
@@ -290,7 +296,43 @@ function App() {
     return () => window.clearInterval(timer);
   }, [cameraActive]);
 
-  if (!adminToken) {
+  useEffect(() => {
+    if (view === "attendance" && !cameraActive) {
+      handleStartCamera();
+    }
+    if (view !== "attendance" && cameraActive && !registrationRef.current) {
+      handleStopCamera();
+    }
+  }, [view]);
+
+  if (view === "landing") {
+    return (
+      <div className="landing-page">
+        <div className="landing-brand"><div className="brand-mark">✓</div><span>Smart Attendance</span></div>
+        <div className="landing-content">
+          <span className="eyebrow">SECURE BIOMETRIC ATTENDANCE</span>
+          <h1>How would you like to continue?</h1>
+          <p>Choose an option below to access the attendance system.</p>
+          <div className="entry-options">
+            <button className="entry-card" onClick={() => setView("attendance")}>
+              <span className="entry-icon">◉</span>
+              <strong>Mark attendance</strong>
+              <span>Use the camera to recognize and mark attendance.</span>
+              <b>Continue to camera →</b>
+            </button>
+            <button className="entry-card admin-entry" onClick={() => setView("login")}>
+              <span className="entry-icon">▣</span>
+              <strong>Admin login</strong>
+              <span>Manage employees, settings, reports, and attendance data.</span>
+              <b>Open admin portal →</b>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "login") {
     return (
       <div className="login-page">
         <form className="login-card" onSubmit={handleLogin}>
@@ -302,6 +344,7 @@ function App() {
           <label>Password<input type="password" value={login.password} onChange={(event) => setLogin({ ...login, password: event.target.value })} autoComplete="current-password" required /></label>
           {loginError && <div className="login-error">{loginError}</div>}
           <button className="primary-btn" type="submit">Sign in securely</button>
+          <button type="button" className="text-button" onClick={() => setView("landing")}>← Back to options</button>
         </form>
       </div>
     );
@@ -321,7 +364,9 @@ function App() {
           <span />
           {cameraActive ? "Camera online" : "Camera offline"}
         </div>
-        <button className="logout-btn" onClick={handleLogout}>Log out</button>
+        <button className="logout-btn" onClick={() => view === "admin" ? handleLogout() : setView("landing")}>
+          {view === "admin" ? "Log out" : "Back to options"}
+        </button>
       </header>
 
       <main>
@@ -345,7 +390,7 @@ function App() {
           <div className="section-heading">
             <div>
               <span className="eyebrow">RECOGNITION</span>
-              <h2>Live camera feed</h2>
+              <h2>{view === "admin" ? "Live camera feed" : "Mark attendance"}</h2>
             </div>
             <span className="scan-state">{cameraActive ? "Scanning for faces" : "Ready to scan"}</span>
           </div>
@@ -401,8 +446,8 @@ function App() {
           {cameraActive && <button onClick={handleStopCamera} className="stop-camera">Stop camera</button>}
         </section>
 
-        <section className="controls-section">
-          <div className="control-card registration-card">
+        <section className={`controls-section ${view === "attendance" ? "attendance-controls" : ""}`}>
+          {view === "admin" && <div className="control-card registration-card">
             <span className="card-icon">＋</span>
             <div>
               <h3>Register employee</h3>
@@ -410,6 +455,13 @@ function App() {
             </div>
             <input value={employeeName} onChange={(event) => setEmployeeName(event.target.value)} placeholder="Full name" />
             <input value={employeeId} onChange={(event) => setEmployeeId(event.target.value)} placeholder="Employee ID" />
+            <label className="duration-setting">Seconds per registration angle
+              <input type="number" min="1" max="30" step="0.5" value={captureDuration} onChange={(event) => {
+                const value = Math.max(1, Math.min(30, Number(event.target.value) || 7.5));
+                setCaptureDuration(value);
+                localStorage.setItem("captureDuration", value);
+              }} />
+            </label>
             <button
               onClick={handleEnroll}
               className="secondary-btn"
@@ -417,7 +469,7 @@ function App() {
             >
               Register employee
             </button>
-          </div>
+          </div>}
           <div className="control-card">
             <span className="card-icon">◷</span>
             <div>
@@ -449,7 +501,7 @@ function App() {
         </section>
 
         <section className="data-grid">
-        <section className="employees-section data-card">
+        {view === "admin" && <section className="employees-section data-card">
           <div className="card-heading"><h3>Registered employees</h3><span>{employees.length}</span></div>
           <ul>
             {employees.map((emp) => (
@@ -462,9 +514,9 @@ function App() {
           <p style={{ fontSize: "0.8rem", color: "666" }}>
             <em>Click "Register Employee" to add via biometric enrollment</em>
           </p>
-        </section>
+        </section>}
 
-        <section className="logs-section data-card">
+        {view === "admin" && <section className="logs-section data-card">
           <div className="card-heading"><h3>Recent attendance</h3><div><span>{logs.length}</span><button className="export-btn" onClick={handleExport}>Export Excel</button></div></div>
           <ul>
             {logs.map((log) => (
@@ -478,7 +530,7 @@ function App() {
             ))}
             {logs.length === 0 && <li>No attendance records yet</li>}
           </ul>
-        </section>
+        </section>}
         </section>
       </main>
 
