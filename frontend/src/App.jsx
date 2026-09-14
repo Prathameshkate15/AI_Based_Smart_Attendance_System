@@ -14,11 +14,40 @@ function App() {
   const [registration, setRegistration] = useState(null);
   const [capturedAngles, setCapturedAngles] = useState([]);
   const [attendanceNotice, setAttendanceNotice] = useState(null);
+  const [adminToken, setAdminToken] = useState(() => sessionStorage.getItem("adminToken"));
+  const [login, setLogin] = useState({ username: "", password: "" });
+  const [loginError, setLoginError] = useState("");
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const registrationRef = useRef(false);
   const stableMatchRef = useRef({ id: null, count: 0 });
   const attendanceCooldownRef = useRef(new Map());
+
+  const adminFetch = (url, options = {}) => fetch(url, {
+    ...options,
+    headers: { ...(options.headers || {}), Authorization: `Bearer ${adminToken}` },
+  });
+
+  const handleLogin = async (event) => {
+    event.preventDefault();
+    setLoginError("");
+    const form = new FormData();
+    form.append("username", login.username);
+    form.append("password", login.password);
+    const response = await fetch(`${API_BASE}/admin/login`, { method: "POST", body: form });
+    if (!response.ok) {
+      setLoginError("Invalid admin username or password");
+      return;
+    }
+    const data = await response.json();
+    sessionStorage.setItem("adminToken", data.token);
+    setAdminToken(data.token);
+  };
+
+  const handleLogout = () => {
+    sessionStorage.removeItem("adminToken");
+    setAdminToken(null);
+  };
 
   const employeesRef = {
     "EMP-001": { name: "John Doe", department: "Engineering" },
@@ -124,17 +153,17 @@ function App() {
       ];
       const frames = [];
       for (const [key, instruction] of angles) {
-        setRegistration({ key, instruction, countdown: 3 });
-        for (let countdown = 3; countdown > 0; countdown -= 1) {
+        setRegistration({ key, instruction, countdown: 7.5 });
+        for (let countdown = 7.5; countdown > 0; countdown -= 0.5) {
           setRegistration({ key, instruction, countdown });
-          await new Promise((resolve) => window.setTimeout(resolve, 700));
+          await new Promise((resolve) => window.setTimeout(resolve, 500));
         }
         frames.push(await captureFrame());
         setCapturedAngles((current) => [...current, key]);
       }
       const form = new FormData();
       frames.forEach((frame, index) => form.append("face_images", frame, `${angles[index][0]}.jpg`));
-      const response = await fetch(
+      const response = await adminFetch(
         `${API_BASE}/register?name=${encodeURIComponent(employeeName)}&employee_id=${encodeURIComponent(employeeId)}`,
         { method: "POST", body: form },
       );
@@ -189,7 +218,7 @@ function App() {
 
   const loadEmployees = async () => {
     try {
-      const response = await fetch(`${API_BASE}/users`);
+      const response = await adminFetch(`${API_BASE}/users`);
       if (!response.ok) throw new Error("Could not load employees");
       setEmployees(await response.json());
     } catch (err) {
@@ -199,7 +228,7 @@ function App() {
 
   const loadLogs = async () => {
     try {
-      const response = await fetch(`${API_BASE}/logs`);
+      const response = await adminFetch(`${API_BASE}/logs`);
       if (!response.ok) throw new Error("Could not load attendance logs");
       setLogs(await response.json());
     } catch (err) {
@@ -207,10 +236,39 @@ function App() {
     }
   };
 
+  const handleDeleteEmployee = async (user) => {
+    if (!window.confirm(`Delete ${user.name} (${user.employee_id}) and attendance history?`)) return;
+    const response = await adminFetch(`${API_BASE}/users/${user.id}`, { method: "DELETE" });
+    if (!response.ok) {
+      setStatusMessage("Could not delete employee");
+      return;
+    }
+    setStatusMessage(`${user.employee_id} deleted`);
+    await loadEmployees();
+    await loadLogs();
+  };
+
+  const handleExport = async () => {
+    const response = await adminFetch(`${API_BASE}/logs/export`);
+    if (!response.ok) {
+      setStatusMessage("Could not export attendance");
+      return;
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "attendance-report.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   useEffect(() => {
+    if (!adminToken) return undefined;
     loadEmployees();
     loadLogs();
-  }, []);
+    return undefined;
+  }, [adminToken]);
 
   useEffect(() => {
     if (!cameraActive || !videoRef.current || !streamRef.current) return undefined;
@@ -232,6 +290,23 @@ function App() {
     return () => window.clearInterval(timer);
   }, [cameraActive]);
 
+  if (!adminToken) {
+    return (
+      <div className="login-page">
+        <form className="login-card" onSubmit={handleLogin}>
+          <div className="brand-mark">✓</div>
+          <span className="eyebrow">SECURE ADMIN AREA</span>
+          <h1>Welcome back</h1>
+          <p>Sign in to manage employees and attendance records.</p>
+          <label>Username<input value={login.username} onChange={(event) => setLogin({ ...login, username: event.target.value })} autoComplete="username" required /></label>
+          <label>Password<input type="password" value={login.password} onChange={(event) => setLogin({ ...login, password: event.target.value })} autoComplete="current-password" required /></label>
+          {loginError && <div className="login-error">{loginError}</div>}
+          <button className="primary-btn" type="submit">Sign in securely</button>
+        </form>
+      </div>
+    );
+  }
+
   return (
     <div className="app-container">
       <header className="app-header">
@@ -246,6 +321,7 @@ function App() {
           <span />
           {cameraActive ? "Camera online" : "Camera offline"}
         </div>
+        <button className="logout-btn" onClick={handleLogout}>Log out</button>
       </header>
 
       <main>
@@ -304,7 +380,7 @@ function App() {
                 <div className="registration-guide">
                   <strong>{registration.instruction}</strong>
                   <span>Capturing in {registration.countdown}...</span>
-                  <small>{capturedAngles.length}/5 angles captured</small>
+                  <small>{capturedAngles.length}/5 angles captured · {registration.countdown}s</small>
                 </div>
               )}
             </div>
@@ -379,7 +455,7 @@ function App() {
             {employees.map((emp) => (
               <li key={emp.id} style={{ marginBottom: "0.5rem" }}>
                 <span style={{ fontWeight: "bold" }}>{emp.employee_id}</span>
-                - {emp.name} ({emp.department})
+                - {emp.name} <button className="delete-btn" onClick={() => handleDeleteEmployee(emp)}>Delete</button>
               </li>
             ))}
           </ul>
@@ -389,7 +465,7 @@ function App() {
         </section>
 
         <section className="logs-section data-card">
-          <div className="card-heading"><h3>Recent attendance</h3><span>{logs.length}</span></div>
+          <div className="card-heading"><h3>Recent attendance</h3><div><span>{logs.length}</span><button className="export-btn" onClick={handleExport}>Export Excel</button></div></div>
           <ul>
             {logs.map((log) => (
               <li key={log.id} style={{ marginBottom: "0.5rem" }}>

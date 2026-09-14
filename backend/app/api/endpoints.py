@@ -1,19 +1,35 @@
 """API Endpoints for Smart Attendance Management System"""
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any
 import json
 import numpy as np
+import os
+import csv
+import io
+import hmac
 
 from ..database import get_db
 from ..models.user import User, AttendanceLog
 from ..services.cv_service import CvPipeline
+from ..auth import issue_token, require_admin
 
 # Initialize CV pipeline (singleton per app session)
 cv_pipeline = CvPipeline(confidence_threshold=0.5, liveness_threshold=0.7)
 
 router = APIRouter(tags=["v1"])
+
+
+@router.post("/admin/login", response_model=dict)
+async def admin_login(username: str = Form(...), password: str = Form(...)):
+    """Start an admin session using credentials supplied through environment variables."""
+    expected_username = os.getenv("ADMIN_USERNAME", "admin")
+    expected_password = os.getenv("ADMIN_PASSWORD", "admin123")
+    if not hmac.compare_digest(username, expected_username) or not hmac.compare_digest(password, expected_password):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin credentials")
+    return {"token": issue_token(username), "username": username}
 
 
 def load_database_embeddings(db: Session) -> None:
@@ -66,6 +82,7 @@ async def register_user(
     employee_id: str,
     face_images: List[UploadFile] = File(...),
     db: Session = Depends(get_db),
+    _admin: str = Depends(require_admin),
 ):
     """
     Register a new employee.
@@ -267,6 +284,7 @@ async def get_attendance_logs(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
+    _admin: str = Depends(require_admin),
 ):
     """Retrieve attendance logs with pagination."""
     from sqlalchemy import select, desc
@@ -295,7 +313,9 @@ async def get_attendance_logs(
 
 
 @router.get("/users", response_model=List[dict])
-async def get_registered_users(db: Session = Depends(get_db)):
+async def get_registered_users(
+    db: Session = Depends(get_db), _admin: str = Depends(require_admin)
+):
     """Retrieve all registered users."""
     from sqlalchemy import select
     result = db.execute(select(User))
@@ -315,6 +335,7 @@ async def get_registered_users(db: Session = Depends(get_db)):
 async def delete_user(
     user_id: int,
     db: Session = Depends(get_db),
+    _admin: str = Depends(require_admin),
 ):
     """Delete a user and their associated data."""
     from sqlalchemy import select, delete as sql_delete
@@ -335,3 +356,31 @@ async def delete_user(
     db.commit()
 
     return None
+
+
+@router.get("/logs/export")
+async def export_attendance_logs(
+    db: Session = Depends(get_db), _admin: str = Depends(require_admin)
+):
+    """Export attendance details as an Excel-compatible CSV file."""
+    from sqlalchemy import select, desc
+
+    rows = db.execute(
+        select(AttendanceLog, User)
+        .join(User, User.id == AttendanceLog.user_id)
+        .order_by(desc(AttendanceLog.created_at))
+    ).all()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Log ID", "Employee ID", "Name", "Clock In", "Clock Out", "Confidence"])
+    for log, user in rows:
+        writer.writerow([
+            log.id, user.employee_id, user.name, log.clock_in, log.clock_out,
+            f"{log.confidence:.4f}",
+        ])
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=attendance-report.csv"},
+    )

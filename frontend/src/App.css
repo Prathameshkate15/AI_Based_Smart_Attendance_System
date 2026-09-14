@@ -33,6 +33,16 @@ header {
 .system-pill { display: flex; align-items: center; gap: .45rem; color: #9cadc4; font-size: .78rem; }
 .system-pill span, .status-dot { width: .5rem; height: .5rem; border-radius: 50%; background: #95a5a6; }
 .system-pill.online span, .status-dot { background: #2ecc71; box-shadow: 0 0 0 4px rgba(46,204,113,.15); }
+.logout-btn { border:1px solid #5b708c; background:transparent; color:#dce7f4; border-radius:6px; padding:.45rem .7rem; cursor:pointer; font-size:.78rem; }
+.login-page { min-height:100vh; display:grid; place-items:center; padding:1.25rem; background:radial-gradient(circle at top right,#dbeafe,#f4f7fb 48%); }
+.login-card { width:min(100%,390px); padding:2.25rem; background:#fff; border:1px solid #dbe4ef; border-radius:16px; box-shadow:0 18px 50px rgba(16,35,63,.12); }
+.login-card .brand-mark { margin-bottom:1.4rem; }
+.login-card h1 { margin:.35rem 0 .5rem; color:#10233f; }
+.login-card p { margin:0 0 1.5rem; color:#708198; font-size:.88rem; line-height:1.5; }
+.login-card label { display:flex; flex-direction:column; gap:.4rem; margin:.9rem 0; color:#42556e; font-size:.8rem; font-weight:700; text-align:left; }
+.login-card input { padding:.75rem; border:1px solid #d7e0eb; border-radius:7px; font:inherit; }
+.login-card button[type="submit"] { width:100%; border:0; border-radius:7px; padding:.75rem; margin-top:.7rem; cursor:pointer; font-weight:700; }
+.login-error { padding:.65rem; border-radius:6px; background:#fff1f2; color:#be123c; font-size:.8rem; }
 
 header h1 {
   margin: 0;
@@ -194,6 +204,10 @@ main {
 .data-card { margin-top:1rem; border:1px solid #dbe4ef; }
 .card-heading { display:flex; justify-content:space-between; align-items:center; }
 .card-heading span { background:#e8f1fb; color:#3182ce; border-radius:99px; padding:.2rem .55rem; font-size:.75rem; font-weight:700; }
+.card-heading > div { display:flex; align-items:center; gap:.5rem; }
+.export-btn, .delete-btn { border:0; border-radius:5px; padding:.3rem .5rem; cursor:pointer; font-size:.7rem; font-weight:700; }
+.export-btn { background:#e8f7ee; color:#16803c; }
+.delete-btn { margin-left:.5rem; background:#fff1f2; color:#be123c; }
 
 .employees-section,
 .logs-section {
