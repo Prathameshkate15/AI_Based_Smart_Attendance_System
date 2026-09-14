@@ -4,14 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any
 
-from database import get_db
-from models.user import User, AttendanceLog
-from services.cv_service import CvPipeline
+from ..database import get_db
+from ..models.user import User, AttendanceLog
+from ..services.cv_service import CvPipeline
 
 # Initialize CV pipeline (singleton per app session)
 cv_pipeline = CvPipeline(confidence_threshold=0.5, liveness_threshold=0.7)
 
-router = APIRouter(prefix="/api/v1", tags=["v1"])
+router = APIRouter(tags=["v1"])
 
 
 @router.get("/health", include_in_schema=False)
@@ -133,8 +133,6 @@ async def clock_in(
     # Perform liveness detection first
     # For single image, we'll do a basic check
     # In production, use a sequence of frames
-    from services.cv_service import CvPipeline
-
     # Basic liveness: check if image looks like a real face vs photo
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     # Simple variance check - live faces have more texture variation

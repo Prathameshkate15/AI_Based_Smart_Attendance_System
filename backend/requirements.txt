@@ -6,6 +6,7 @@ uvicorn[standard]
 opencv-python
 deepface
 insightface
+tf-keras
 numpy
 scikit-learn
 xgboost
@@ -13,6 +14,7 @@ xgboost
 # Database
 sqlalchemy
 redis
+celery
 
 # MLOps
 mlflow

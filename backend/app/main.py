@@ -51,7 +51,7 @@ async def health_check():
     return {"status": "healthy", "service": "attendance-api"}
 
 
-@app.exception_handler(HttpException)
+@app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
     return JSONResponse(
         status_code=exc.status_code,
