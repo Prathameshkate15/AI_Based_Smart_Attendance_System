@@ -15,7 +15,7 @@ function App() {
   const [capturedAngles, setCapturedAngles] = useState([]);
   const [attendanceNotice, setAttendanceNotice] = useState(null);
   const [adminToken, setAdminToken] = useState(() => sessionStorage.getItem("adminToken"));
-  const [view, setView] = useState("landing");
+  const [view, setView] = useState(() => sessionStorage.getItem("adminToken") ? "admin" : "landing");
   const [captureDuration, setCaptureDuration] = useState(
     () => Number(localStorage.getItem("captureDuration")) || 7.5,
   );
@@ -35,24 +35,30 @@ function App() {
   const handleLogin = async (event) => {
     event.preventDefault();
     setLoginError("");
+    const username = login.username.trim();
     const form = new FormData();
-    form.append("username", login.username);
+    form.append("username", username);
     form.append("password", login.password);
-    const response = await fetch(`${API_BASE}/admin/login`, { method: "POST", body: form });
-    if (!response.ok) {
-      setLoginError("Invalid admin username or password");
-      return;
+    try {
+      const response = await fetch(`${API_BASE}/admin/login`, { method: "POST", body: form });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        setLoginError(error.detail || "Invalid admin username or password");
+        return;
+      }
+      const data = await response.json();
+      sessionStorage.setItem("adminToken", data.token);
+      setAdminToken(data.token);
+      setView("admin");
+    } catch (error) {
+      setLoginError(`Unable to reach the API: ${error.message}`);
     }
-    const data = await response.json();
-    sessionStorage.setItem("adminToken", data.token);
-    setAdminToken(data.token);
-    setView("admin");
   };
 
-  const handleLogout = () => {
+  const handleLogout = (returnToLogin = false) => {
     sessionStorage.removeItem("adminToken");
     setAdminToken(null);
-    setView("landing");
+    setView(returnToLogin ? "login" : "landing");
   };
 
   const employeesRef = {
@@ -256,7 +262,7 @@ function App() {
     try {
       const response = await adminFetch(`${API_BASE}/users`);
       if (response.status === 401) {
-        handleLogout();
+        handleLogout(true);
         throw new Error("Admin session expired; please sign in again");
       }
       if (!response.ok) throw new Error("Could not load employees");
@@ -270,7 +276,7 @@ function App() {
     try {
       const response = await adminFetch(`${API_BASE}/logs`);
       if (response.status === 401) {
-        handleLogout();
+        handleLogout(true);
         throw new Error("Admin session expired; please sign in again");
       }
       if (!response.ok) throw new Error("Could not load attendance logs");
