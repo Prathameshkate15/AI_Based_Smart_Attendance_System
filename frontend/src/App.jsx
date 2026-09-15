@@ -27,7 +27,7 @@ function App() {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const registrationRef = useRef(false);
-  const stableMatchRef = useRef({ id: null, count: 0 });
+  const stableMatchesRef = useRef(new Map());
   const attendanceCooldownRef = useRef(new Map());
   const attendanceInFlightRef = useRef(false);
   const analysisInFlightRef = useRef(false);
@@ -124,20 +124,32 @@ function App() {
       if (!response.ok) throw new Error("Face analysis failed");
       const faces = (await response.json()).faces;
       setFaceMatches(faces);
-      const recognized = faces.find((face) => face.recognized);
+      const recognizedFaces = faces.filter((face) => face.recognized);
+      const visibleIds = new Set(recognizedFaces.map((face) => face.user_id));
+      for (const id of stableMatchesRef.current.keys()) {
+        if (!visibleIds.has(id)) stableMatchesRef.current.delete(id);
+      }
+      recognizedFaces.forEach((face) => {
+        const stable = stableMatchesRef.current.get(face.user_id) || { count: 0, face };
+        stable.count += 1;
+        stable.face = face;
+        stableMatchesRef.current.set(face.user_id, stable);
+      });
+      if (recognizedFaces.length > 1) {
+        setStatusMessage(`Multiple faces detected - marking recognized employees individually`);
+      }
+      const recognized = [...stableMatchesRef.current.values()]
+        .filter((stable) => stable.count >= 2)
+        .sort((a, b) => b.count - a.count)
+        .map((stable) => stable.face)
+        .find((face) => {
+          const lastMarked = attendanceCooldownRef.current.get(face.employee_id) || 0;
+          return Date.now() - lastMarked > 60 * 60 * 1000;
+        });
       if (recognized) {
-        const stable = stableMatchRef.current;
-        if (stable.id === recognized.user_id) {
-          stable.count += 1;
-        } else {
-          stable.id = recognized.user_id;
-          stable.count = 1;
-        }
-        const lastMarked = attendanceCooldownRef.current.get(recognized.employee_id) || 0;
         if (
-          stable.count >= 2 &&
           !attendanceInFlightRef.current &&
-          Date.now() - lastMarked > 10 * 60 * 1000
+          Date.now() - (attendanceCooldownRef.current.get(recognized.employee_id) || 0) > 60 * 60 * 1000
         ) {
           attendanceInFlightRef.current = true;
           try {
@@ -151,7 +163,11 @@ function App() {
               const attendance = await clockResponse.json();
               attendanceCooldownRef.current.set(recognized.employee_id, Date.now());
               setAttendanceNotice(attendance);
-              setStatusMessage("Attendance marked automatically");
+              setStatusMessage(
+                attendance.already_marked
+                  ? "Attendance was already marked within the last hour"
+                  : "Attendance marked automatically",
+              );
               if (adminToken) await loadLogs();
             } else {
               const error = await clockResponse.json().catch(() => ({}));
@@ -161,8 +177,8 @@ function App() {
             attendanceInFlightRef.current = false;
           }
         }
-      } else {
-        stableMatchRef.current = { id: null, count: 0 };
+      } else if (recognizedFaces.length === 0) {
+        stableMatchesRef.current.clear();
       }
     } catch (err) {
       if (cameraActive) setStatusMessage(`Analysis error: ${err.message}`);
@@ -447,7 +463,7 @@ function App() {
           <section className="attendance-notice" role="status">
             <div className="success-icon">✓</div>
             <div className="attendance-copy">
-              <strong>Attendance marked</strong>
+              <strong>{attendanceNotice.already_marked ? "Already marked" : "Attendance marked"}</strong>
               <span>{attendanceNotice.name || "Employee"} is checked in successfully</span>
               <div className="attendance-meta">
                 <b>ID: {attendanceNotice.employee_id}</b>

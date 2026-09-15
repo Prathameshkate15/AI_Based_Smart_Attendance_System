@@ -212,17 +212,9 @@ async def clock_in(
             detail="Could not decode face image",
         )
 
-    # Verify face against registered embeddings
-    user_id, confidence, user_info = cv_pipeline.verify_face(img)
-
-    if user_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Face not recognized - employee not registered or face not matched",
-        )
-
     # Check if employee exists in DB
     from sqlalchemy import select
+    from datetime import datetime, timedelta, timezone
     result = db.execute(select(User).where(User.employee_id == employee_id))
     user = result.scalar_one_or_none()
 
@@ -231,14 +223,52 @@ async def clock_in(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Employee not found in database",
         )
-    if user.id != user_id:
+    # Match the requested employee against each detected face. This makes
+    # attendance safe when several people are visible in the same frame.
+    user_id = None
+    confidence = None
+    detected_boxes = cv_pipeline.detect_face_boxes(img)
+    for x, y, width, height in detected_boxes:
+        face_crop = img[y : y + height, x : x + width]
+        matched_id, matched_confidence, _ = cv_pipeline.verify_face(face_crop)
+        if matched_id == user.id:
+            user_id = matched_id
+            confidence = matched_confidence
+            break
+    if user_id is None and not detected_boxes:
+        user_id, confidence, _ = cv_pipeline.verify_face(img)
+
+    if user_id is None:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="The recognized face does not match the requested employee",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="The requested employee was not recognized in the camera frame",
         )
 
+    # Attendance is idempotent for one employee for one hour.
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
+    recent_result = db.execute(
+        select(AttendanceLog)
+        .where(
+            AttendanceLog.user_id == user.id,
+            AttendanceLog.clock_in.isnot(None),
+            AttendanceLog.clock_in >= cutoff,
+        )
+        .order_by(AttendanceLog.clock_in.desc())
+    )
+    recent_log = recent_result.scalars().first()
+    if recent_log is not None:
+        return {
+            "log_id": recent_log.id,
+            "user_id": user.id,
+            "employee_id": user.employee_id,
+            "name": user.name,
+            "clock_in": recent_log.clock_in.isoformat() if recent_log.clock_in else None,
+            "confidence": round(recent_log.confidence, 4),
+            "already_marked": True,
+            "message": f"Attendance already marked for {user.name} within the last hour",
+        }
+
     # Record attendance log
-    from datetime import datetime, timezone
     new_log = AttendanceLog(
         user_id=user.id,
         clock_in=datetime.now(timezone.utc),
@@ -255,6 +285,7 @@ async def clock_in(
         "name": user.name,
         "clock_in": new_log.clock_in.isoformat() if new_log.clock_in else None,
         "confidence": round(confidence, 4),
+        "already_marked": False,
         "message": f"Clock-in successful for {user.name}",
     }
 
