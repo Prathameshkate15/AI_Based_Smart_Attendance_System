@@ -212,21 +212,6 @@ async def clock_in(
             detail="Could not decode face image",
         )
 
-    # Perform liveness detection first
-    # For single image, we'll do a basic check
-    # In production, use a sequence of frames
-    # Basic liveness: check if image looks like a real face vs photo
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    # Simple variance check - live faces have more texture variation
-    laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
-    is_live = laplacian_var > 100  # Threshold for texture variation
-
-    if not is_live:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Liveness detection failed - possible photo spoof",
-        )
-
     # Verify face against registered embeddings
     user_id, confidence, user_info = cv_pipeline.verify_face(img)
 

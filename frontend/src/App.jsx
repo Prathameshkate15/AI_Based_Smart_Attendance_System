@@ -26,6 +26,7 @@ function App() {
   const registrationRef = useRef(false);
   const stableMatchRef = useRef({ id: null, count: 0 });
   const attendanceCooldownRef = useRef(new Map());
+  const attendanceInFlightRef = useRef(false);
 
   const adminFetch = (url, options = {}) => fetch(url, {
     ...options,
@@ -127,19 +128,31 @@ function App() {
           stable.count = 1;
         }
         const lastMarked = attendanceCooldownRef.current.get(recognized.employee_id) || 0;
-        if (stable.count >= 2 && Date.now() - lastMarked > 10 * 60 * 1000) {
-          const clockForm = new FormData();
-          clockForm.append("face_image", frame, "attendance.jpg");
-          const clockResponse = await fetch(
-            `${API_BASE}/clock-in?employee_id=${encodeURIComponent(recognized.employee_id)}`,
-            { method: "POST", body: clockForm },
-          );
-          if (clockResponse.ok) {
-            const attendance = await clockResponse.json();
-            attendanceCooldownRef.current.set(recognized.employee_id, Date.now());
-            setAttendanceNotice(attendance);
-            setStatusMessage("Attendance marked automatically");
-            if (adminToken) await loadLogs();
+        if (
+          stable.count >= 2 &&
+          !attendanceInFlightRef.current &&
+          Date.now() - lastMarked > 10 * 60 * 1000
+        ) {
+          attendanceInFlightRef.current = true;
+          try {
+            const clockForm = new FormData();
+            clockForm.append("face_image", frame, "attendance.jpg");
+            const clockResponse = await fetch(
+              `${API_BASE}/clock-in?employee_id=${encodeURIComponent(recognized.employee_id)}`,
+              { method: "POST", body: clockForm },
+            );
+            if (clockResponse.ok) {
+              const attendance = await clockResponse.json();
+              attendanceCooldownRef.current.set(recognized.employee_id, Date.now());
+              setAttendanceNotice(attendance);
+              setStatusMessage("Attendance marked automatically");
+              if (adminToken) await loadLogs();
+            } else {
+              const error = await clockResponse.json().catch(() => ({}));
+              setStatusMessage(`Automatic attendance failed: ${error.detail || "clock-in rejected"}`);
+            }
+          } finally {
+            attendanceInFlightRef.current = false;
           }
         }
       } else {
