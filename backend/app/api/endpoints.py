@@ -90,17 +90,19 @@ async def registration_check(
     image = cv2.imdecode(np.frombuffer(contents, np.uint8), cv2.IMREAD_COLOR)
     if image is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image could not be decoded")
-    if cv_pipeline.face_detector is None:
-        return {"valid": True, "face_count": 1}
     boxes = cv_pipeline.detect_face_boxes(image)
     face_count = len(boxes)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    brightness = float(np.mean(gray))
+    sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    valid = bool(face_count >= 1 or (brightness > 25 and sharpness > 15))
     return {
-        "valid": face_count == 1,
+        "valid": valid,
         "face_count": face_count,
         "message": (
             "Face is clear"
-            if face_count == 1
-            else "Keep exactly one face centered, well lit, and fully visible"
+            if valid
+            else "Move closer, improve lighting, and keep your face inside the frame"
         ),
     }
 

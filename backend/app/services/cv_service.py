@@ -60,14 +60,18 @@ class CvPipeline:
         return embedding / norm if norm else None
 
     def extract_single_face_embedding(self, image: np.ndarray) -> Optional[np.ndarray]:
-        """Detect exactly one face and return its normalized embedding."""
+        """Extract an enrollment embedding, tolerating missed profile detections."""
         boxes = self.detect_face_boxes(image)
-        if not boxes:
-            return self.extract_embedding(image)
-        if len(boxes) != 1:
+        if boxes:
+            x, y, width, height = max(boxes, key=lambda box: box[2] * box[3])
+            return self.extract_embedding(image[y : y + height, x : x + width])
+        if image.size == 0:
             return None
-        x, y, width, height = boxes[0]
-        return self.extract_embedding(image[y : y + height, x : x + width])
+        height, width = image.shape[:2]
+        margin_x, margin_y = int(width * 0.15), int(height * 0.08)
+        return self.extract_embedding(
+            image[margin_y : height - margin_y, margin_x : width - margin_x]
+        )
 
     def detect_face_boxes(self, image: np.ndarray) -> List[Tuple[int, int, int, int]]:
         """Detect frontal and profile faces, merging duplicate detections."""
