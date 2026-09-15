@@ -21,12 +21,16 @@ function App() {
   );
   const [login, setLogin] = useState({ username: "", password: "" });
   const [loginError, setLoginError] = useState("");
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [isClockingIn, setIsClockingIn] = useState(false);
+  const [isClockingOut, setIsClockingOut] = useState(false);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const registrationRef = useRef(false);
   const stableMatchRef = useRef({ id: null, count: 0 });
   const attendanceCooldownRef = useRef(new Map());
   const attendanceInFlightRef = useRef(false);
+  const analysisInFlightRef = useRef(false);
 
   const adminFetch = (url, options = {}) => fetch(url, {
     ...options,
@@ -110,6 +114,8 @@ function App() {
   };
 
   const analyzeCurrentFrame = async () => {
+    if (analysisInFlightRef.current || registrationRef.current) return;
+    analysisInFlightRef.current = true;
     try {
       const frame = await captureFrame();
       const form = new FormData();
@@ -160,6 +166,8 @@ function App() {
       }
     } catch (err) {
       if (cameraActive) setStatusMessage(`Analysis error: ${err.message}`);
+    } finally {
+      analysisInFlightRef.current = false;
     }
   };
 
@@ -168,6 +176,7 @@ function App() {
       if (!adminToken || view !== "admin") throw new Error("Open Admin login to register employees");
       if (!employeeName.trim() || !employeeId.trim()) throw new Error("Enter employee name and ID");
       if (!cameraActive) throw new Error("Start the camera first");
+      setIsRegistering(true);
       registrationRef.current = true;
       setCapturedAngles([]);
       const angles = [
@@ -234,11 +243,13 @@ function App() {
       setCapturedAngles([]);
     } finally {
       registrationRef.current = false;
+      setIsRegistering(false);
     }
   };
 
   const handleClockIn = async () => {
     try {
+      setIsClockingIn(true);
       if (!employeeId) throw new Error("Enter an employee ID");
       const frame = await captureFrame();
       const form = new FormData();
@@ -254,11 +265,14 @@ function App() {
       if (adminToken) await loadLogs();
     } catch (err) {
       setStatusMessage(`Clock-in error: ${err.message}`);
+    } finally {
+      setIsClockingIn(false);
     }
   };
 
   const handleClockOut = async () => {
     try {
+      setIsClockingOut(true);
       if (!employeeId) throw new Error("Enter an employee ID");
       const response = await fetch(`${API_BASE}/clock-out?employee_id=${encodeURIComponent(employeeId)}`, {
         method: "POST",
@@ -268,6 +282,8 @@ function App() {
       if (adminToken) await loadLogs();
     } catch (err) {
       setStatusMessage(`Clock-out error: ${err.message}`);
+    } finally {
+      setIsClockingOut(false);
     }
   };
 
@@ -524,9 +540,9 @@ function App() {
             <button
               onClick={handleEnroll}
               className="secondary-btn"
-              disabled={!cameraActive}
+              disabled={!cameraActive || isRegistering}
             >
-              Register employee
+              {isRegistering ? "Capturing angles..." : "Register employee"}
             </button>
           </div>}
           <div className="control-card">
@@ -538,16 +554,16 @@ function App() {
             <button
               onClick={handleClockIn}
               className="primary-btn"
-              disabled={!cameraActive}
+              disabled={!cameraActive || isClockingIn || isRegistering}
             >
-              Clock in
+              {isClockingIn ? "Marking..." : "Clock in"}
             </button>
             <button
               onClick={handleClockOut}
               className="secondary-btn"
-              disabled={!cameraActive}
+              disabled={!cameraActive || isClockingOut || isRegistering}
             >
-              Clock out
+              {isClockingOut ? "Processing..." : "Clock out"}
             </button>
           </div>
         </section>
