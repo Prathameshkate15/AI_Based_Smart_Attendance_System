@@ -134,6 +134,29 @@ The frontend will proxy API calls to `http://localhost:8000/api/v1`.
 
 ## Production Deployment Steps
 
+## Public showcase: Vercel + Render
+
+The repository includes `vercel.json` and `render.yaml` for a split showcase
+deployment:
+
+1. Push the repository to GitHub.
+2. In Render, use **Blueprints** and select `render.yaml`.
+3. Set `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `ADMIN_TOKEN_SECRET`, and
+   `CORS_ORIGINS` in the Render service environment. Set `CORS_ORIGINS` to the
+   final Vercel URL, for example
+   `https://smart-attendance-showcase.vercel.app`.
+4. Wait for the Render health check at
+   `https://YOUR-API.onrender.com/api/v1/health` to return HTTP 200.
+5. Import the same repository into Vercel with root directory `frontend`.
+6. Set `VITE_API_BASE_URL` in Vercel to
+   `https://YOUR-API.onrender.com/api/v1`.
+7. Redeploy Vercel after setting the environment variable.
+
+The Render blueprint provisions PostgreSQL and uses the backend Dockerfile.
+Never use the development credentials or a wildcard CORS origin for a public
+deployment. Browser camera access requires the deployed Vercel site to use
+HTTPS.
+
 ### Step 1: Build Docker Images
 ```bash
 docker-compose build

@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: smart-attendance-api
+    runtime: docker
+    rootDir: backend
+    plan: starter
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: smart-attendance-db
+          property: connectionString
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_TOKEN_SECRET
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+
+databases:
+  - name: smart-attendance-db
+    plan: free
