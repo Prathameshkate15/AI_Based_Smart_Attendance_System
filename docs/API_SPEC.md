@@ -120,9 +120,18 @@ Query parameter:
 ```json
 {
   "employee_id": "EMP-001",
-  "face_image": "base64_encoded_frame"  // Live camera frame
+  "face_image": "multipart primary camera frame",
+  "face_images": [
+    "multipart liveness frame 2",
+    "multipart liveness frame 3"
+  ]
 }
 ```
+
+Clock-in requires three frames captured over a short interval. The frames are
+checked for natural movement before the identity match is recorded. A repeated
+clock-in for the same employee within one hour returns the existing attendance
+log instead of creating a duplicate.
 
 **Response (200 OK):**
 ```json

@@ -190,6 +190,7 @@ async def register_user(
 async def clock_in(
     employee_id: str,
     face_image: UploadFile = File(...),
+    face_images: List[UploadFile] = File(default=[]),
     db: Session = Depends(get_db),
 ):
     """
@@ -198,7 +199,7 @@ async def clock_in(
     - **employee_id**: Employee identifier
     - **face_image**: Live face image from camera feed
     """
-    # Read the face image
+    # Read the primary frame and optional movement frames used for liveness.
     contents = await face_image.read()
     import numpy as np
     import cv2
@@ -210,6 +211,25 @@ async def clock_in(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Could not decode face image",
+        )
+
+    liveness_frames = [img]
+    for uploaded_frame in face_images:
+        frame_contents = await uploaded_frame.read()
+        frame_array = np.frombuffer(frame_contents, np.uint8)
+        frame = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
+        if frame is not None:
+            liveness_frames.append(frame)
+    if len(liveness_frames) < 3:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Liveness check requires three camera frames. Move your head slightly and try again.",
+        )
+    is_live, liveness_score = cv_pipeline.check_liveness(liveness_frames)
+    if not is_live:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Liveness check failed. Move your head slightly while facing the camera.",
         )
 
     # Check if employee exists in DB
@@ -285,6 +305,7 @@ async def clock_in(
         "name": user.name,
         "clock_in": new_log.clock_in.isoformat() if new_log.clock_in else None,
         "confidence": round(confidence, 4),
+        "liveness_score": round(liveness_score, 4),
         "already_marked": False,
         "message": f"Clock-in successful for {user.name}",
     }

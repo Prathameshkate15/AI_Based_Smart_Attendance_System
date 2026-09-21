@@ -113,6 +113,15 @@ function App() {
     return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
   };
 
+  const captureLivenessFrames = async (firstFrame) => {
+    const frames = [firstFrame];
+    for (let index = 0; index < 2; index += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 250));
+      frames.push(await captureFrame());
+    }
+    return frames;
+  };
+
   const analyzeCurrentFrame = async () => {
     if (analysisInFlightRef.current || registrationRef.current) return;
     analysisInFlightRef.current = true;
@@ -153,8 +162,13 @@ function App() {
         ) {
           attendanceInFlightRef.current = true;
           try {
+            setStatusMessage("Checking liveness - move your head slightly");
+            const livenessFrames = await captureLivenessFrames(frame);
             const clockForm = new FormData();
-            clockForm.append("face_image", frame, "attendance.jpg");
+            clockForm.append("face_image", livenessFrames[0], "attendance.jpg");
+            livenessFrames.slice(1).forEach((livenessFrame, index) => {
+              clockForm.append("face_images", livenessFrame, `liveness-${index + 2}.jpg`);
+            });
             const clockResponse = await fetch(
               `${API_BASE}/clock-in?employee_id=${encodeURIComponent(recognized.employee_id)}`,
               { method: "POST", body: clockForm },
@@ -268,8 +282,13 @@ function App() {
       setIsClockingIn(true);
       if (!employeeId) throw new Error("Enter an employee ID");
       const frame = await captureFrame();
+      setStatusMessage("Checking liveness - move your head slightly");
+      const livenessFrames = await captureLivenessFrames(frame);
       const form = new FormData();
-      form.append("face_image", frame, "face.jpg");
+      form.append("face_image", livenessFrames[0], "face.jpg");
+      livenessFrames.slice(1).forEach((livenessFrame, index) => {
+        form.append("face_images", livenessFrame, `liveness-${index + 2}.jpg`);
+      });
       const response = await fetch(`${API_BASE}/clock-in?employee_id=${encodeURIComponent(employeeId)}`, {
         method: "POST",
         body: form,

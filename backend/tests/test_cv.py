@@ -65,3 +65,20 @@ def test_data_retention_policy():
     assert attendance_days > 0
     # Attendance retention should be longer or equal to embedding
     assert attendance_days >= embedding_days
+
+
+def test_liveness_rejects_static_sequence_and_accepts_motion():
+    """Clock-in liveness must distinguish a static image from camera motion."""
+    pipeline = CvPipeline(liveness_threshold=0.7)
+    static_frames = [np.zeros((120, 120, 3), dtype=np.uint8) for _ in range(3)]
+    is_live, score = pipeline.check_liveness(static_frames)
+    assert is_live is False
+    assert score < pipeline.liveness_threshold
+
+    motion_frames = [
+        np.full((120, 120, 3), value, dtype=np.uint8)
+        for value in (0, 80, 160)
+    ]
+    is_live, score = pipeline.check_liveness(motion_frames)
+    assert is_live is True
+    assert score >= pipeline.liveness_threshold

@@ -221,16 +221,15 @@ class CvPipeline:
             blink_count = sum(1 for ear in ear_scores if ear < 0.3)
             blink_ratio = blink_count / len(ear_scores) if ear_scores else 0.0
 
-            # Liveness scoring:
-            # - Live person: has head motion AND blink patterns
-            # - Spoof (photo): static, no motion, no blinks
-            motion_factor = min(avg_motion / 30.0, 1.0)  # Normalize
-            blink_factor = min(blink_ratio * 5, 1.0)  # Reward blinks
-
-            liveness_score = 0.6 * motion_factor + 0.4 * blink_factor
+            # A short prompted movement sequence is the reliable signal here.
+            # Blink estimation is only a supporting signal because the
+            # lightweight eye-region heuristic is not reliable across cameras.
+            motion_factor = min(avg_motion / 12.0, 1.0)
+            blink_factor = min(blink_ratio * 5, 1.0)
+            liveness_score = 0.8 * motion_factor + 0.2 * blink_factor
             is_live = liveness_score >= self.liveness_threshold
 
-            return is_live, float(liveness_score)
+            return bool(is_live), float(liveness_score)
 
         except Exception as e:
             return False, 0.0
