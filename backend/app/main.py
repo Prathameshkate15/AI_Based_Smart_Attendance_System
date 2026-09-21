@@ -14,9 +14,23 @@ from sqlalchemy import inspect, text
 
 # Initialize database tables
 Base.metadata.create_all(bind=engine)
-if "face_embedding" not in {column["name"] for column in inspect(engine).get_columns("users")}:
+user_columns = {column["name"] for column in inspect(engine).get_columns("users")}
+if "face_embedding" not in user_columns:
     with engine.begin() as connection:
         connection.execute(text("ALTER TABLE users ADD COLUMN face_embedding TEXT"))
+if "updated_at" not in user_columns:
+    # Older demo databases predate the update timestamp on User.
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE users ADD COLUMN updated_at TIMESTAMP"))
+log_columns = {column["name"] for column in inspect(engine).get_columns("attendance_logs")}
+for column, definition in (
+    ("anomaly_status", "VARCHAR(20) NOT NULL DEFAULT 'NORMAL'"),
+    ("anomaly_score", "FLOAT"),
+    ("anomaly_reason", "TEXT"),
+):
+    if column not in log_columns:
+        with engine.begin() as connection:
+            connection.execute(text(f"ALTER TABLE attendance_logs ADD COLUMN {column} {definition}"))
 
 app = FastAPI(
     title="Smart Attendance Management System API",

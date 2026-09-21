@@ -3,7 +3,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+from datetime import date
 import json
 import numpy as np
 import os
@@ -15,11 +16,76 @@ from ..database import get_db
 from ..models.user import User, AttendanceLog
 from ..services.cv_service import CvPipeline
 from ..auth import issue_token, require_admin
+from ..services.analytics import build_summary, detect_anomalies, resolve_date_range
 
 # Initialize CV pipeline (singleton per app session)
 cv_pipeline = CvPipeline(confidence_threshold=0.5, liveness_threshold=0.7)
 
 router = APIRouter(tags=["v1"])
+
+
+@router.get("/admin/analytics/summary", response_model=dict)
+async def analytics_summary(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(require_admin),
+):
+    """Return attendance totals, daily trends, and per-employee metrics."""
+    try:
+        return build_summary(db, start_date, end_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.post("/admin/analytics/anomalies/detect", response_model=dict)
+async def run_anomaly_detection(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(require_admin),
+):
+    """Analyze logs and persist records that require HR review."""
+    try:
+        anomalies = detect_anomalies(db, start_date, end_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return {"anomalies": anomalies, "count": len(anomalies)}
+
+
+@router.get("/admin/analytics/anomalies", response_model=List[dict])
+async def list_anomalies(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    db: Session = Depends(get_db),
+    _admin: str = Depends(require_admin),
+):
+    """List persisted anomaly flags, without retraining the detector."""
+    try:
+        _, _, start, end = resolve_date_range(start_date, end_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    from sqlalchemy import select, desc
+    rows = db.execute(
+        select(AttendanceLog, User)
+        .join(User, User.id == AttendanceLog.user_id)
+        .where(
+            AttendanceLog.anomaly_status == "REQUIRES_REVIEW",
+            AttendanceLog.clock_in >= start,
+            AttendanceLog.clock_in < end,
+        )
+        .order_by(desc(AttendanceLog.clock_in))
+    ).all()
+    return [
+        {
+            "log_id": log.id, "employee_id": user.employee_id, "name": user.name,
+            "clock_in": log.clock_in.isoformat() if log.clock_in else None,
+            "clock_out": log.clock_out.isoformat() if log.clock_out else None,
+            "score": log.anomaly_score, "reason": log.anomaly_reason,
+            "status": log.anomaly_status,
+        }
+        for log, user in rows
+    ]
 
 
 @router.post("/admin/login", response_model=dict)

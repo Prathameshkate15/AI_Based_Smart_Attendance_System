@@ -8,6 +8,9 @@ function App() {
   const [statusMessage, setStatusMessage] = useState("");
   const [employees, setEmployees] = useState([]);
   const [logs, setLogs] = useState([]);
+  const [analytics, setAnalytics] = useState(null);
+  const [anomalies, setAnomalies] = useState([]);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [employeeId, setEmployeeId] = useState("");
   const [employeeName, setEmployeeName] = useState("");
   const [faceMatches, setFaceMatches] = useState([]);
@@ -350,6 +353,43 @@ function App() {
     }
   };
 
+  const loadAnalytics = async () => {
+    try {
+      setAnalyticsLoading(true);
+      const [summaryResponse, anomaliesResponse] = await Promise.all([
+        adminFetch(`${API_BASE}/admin/analytics/summary`),
+        adminFetch(`${API_BASE}/admin/analytics/anomalies`),
+      ]);
+      if (summaryResponse.status === 401 || anomaliesResponse.status === 401) {
+        handleLogout(true);
+        throw new Error("Admin session expired; please sign in again");
+      }
+      if (!summaryResponse.ok || !anomaliesResponse.ok) throw new Error("Could not load analytics");
+      setAnalytics(await summaryResponse.json());
+      setAnomalies(await anomaliesResponse.json());
+    } catch (err) {
+      setStatusMessage(`Analytics load error: ${err.message}`);
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
+
+  const handleDetectAnomalies = async () => {
+    try {
+      setAnalyticsLoading(true);
+      const response = await adminFetch(`${API_BASE}/admin/analytics/anomalies/detect`, { method: "POST" });
+      if (!response.ok) throw new Error((await response.json()).detail || "Could not detect anomalies");
+      const result = await response.json();
+      setAnomalies(result.anomalies);
+      setStatusMessage(`${result.count} attendance anomalies require review`);
+      await loadAnalytics();
+    } catch (err) {
+      setStatusMessage(`Analytics error: ${err.message}`);
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
+
   const handleDeleteEmployee = async (user) => {
     if (!window.confirm(`Delete ${user.name} (${user.employee_id}) and attendance history?`)) return;
     const response = await adminFetch(`${API_BASE}/users/${user.id}`, { method: "DELETE" });
@@ -381,6 +421,7 @@ function App() {
     if (!adminToken) return undefined;
     loadEmployees();
     loadLogs();
+    loadAnalytics();
     return undefined;
   }, [adminToken]);
 
@@ -611,6 +652,26 @@ function App() {
         </section>
 
         <section className="data-grid">
+        {view === "admin" && <section className="analytics-section data-card">
+          <div className="card-heading">
+            <div><span className="eyebrow">INSIGHTS</span><h3>Attendance analytics</h3></div>
+            <button className="export-btn" onClick={handleDetectAnomalies} disabled={analyticsLoading}>
+              {analyticsLoading ? "Analyzing..." : "Scan for anomalies"}
+            </button>
+          </div>
+          <div className="analytics-metrics">
+            <div><strong>{analytics?.total_logs ?? "—"}</strong><span>Attendance logs</span></div>
+            <div><strong>{analytics?.unique_employees ?? "—"}</strong><span>Employees present</span></div>
+            <div><strong>{analytics?.total_hours ?? "—"}h</strong><span>Completed hours</span></div>
+            <div className={anomalies.length ? "metric-alert" : ""}><strong>{anomalies.length}</strong><span>Needs review</span></div>
+          </div>
+          {anomalies.length > 0 && <ul className="anomaly-list">
+            {anomalies.slice(0, 5).map((anomaly) => (
+              <li key={anomaly.log_id}><b>{anomaly.employee_id} · {anomaly.name}</b><span>{anomaly.reason}</span></li>
+            ))}
+          </ul>}
+          {!anomalies.length && <p className="empty-state">No flagged attendance anomalies in the current period.</p>}
+        </section>}
         {view === "admin" && <section className="employees-section data-card">
           <div className="card-heading"><h3>Registered employees</h3><span>{employees.length}</span></div>
           <ul>

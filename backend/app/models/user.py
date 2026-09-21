@@ -29,6 +29,9 @@ class AttendanceLog(Base):
     clock_out = Column(DateTime(timezone=True))
     confidence = Column(Float, nullable=False)  # CV confidence score
     frame_hash = Column(String(64), nullable=True)  # Hash of processed frame
+    anomaly_status = Column(String(20), nullable=False, default="NORMAL", server_default="NORMAL", index=True)
+    anomaly_score = Column(Float, nullable=True)
+    anomaly_reason = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 

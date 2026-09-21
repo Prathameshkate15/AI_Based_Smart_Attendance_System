@@ -106,6 +106,19 @@ main { width: min(1180px, calc(100% - 2.5rem)); margin: 2rem auto 3.5rem; }
 
 .data-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
 .data-card { margin-top: 1rem; border: 1px solid #dce6f2; border-radius: 14px; background: #fff; box-shadow: 0 5px 16px rgba(19,40,69,.04); }
+.analytics-section { grid-column: 1 / -1; padding: 1.25rem; }
+.analytics-section .card-heading { align-items: flex-end; }
+.analytics-section .card-heading h3 { margin: .25rem 0 0; }
+.analytics-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: .7rem; margin-top: 1rem; }
+.analytics-metrics > div { padding: .85rem; border: 1px solid #e4ebf3; border-radius: 10px; background: #f8fafc; }
+.analytics-metrics strong { display: block; color: #183153; font-size: 1.25rem; letter-spacing: -.03em; }
+.analytics-metrics span { color: #7b8a9d; font-size: .7rem; font-weight: 700; }
+.analytics-metrics .metric-alert { border-color: #f2c4ce; background: #fff5f6; }
+.analytics-metrics .metric-alert strong { color: #b42345; }
+.anomaly-list { display: grid; gap: .45rem; padding: 0; margin: 1rem 0 0; list-style: none; }
+.anomaly-list li { display: flex; justify-content: space-between; gap: 1rem; padding: .65rem .75rem; border-left: 3px solid #e7a23b; border-radius: 6px; color: #52647b; background: #fffaf1; font-size: .76rem; }
+.anomaly-list li span { color: #9a651d; }
+.empty-state { margin: 1rem 0 0; color: #8795a8; font-size: .75rem; }
 .employees-section, .logs-section { padding: 1.25rem; }
 .card-heading { display: flex; align-items: center; justify-content: space-between; gap: .7rem; }
 .card-heading h3 { margin: 0; color: #1a2a40; font-size: .98rem; }
@@ -125,6 +138,9 @@ footer { padding: 1.25rem 0; border-top: 1px solid #dce6f2; color: #8795a8; text
   .brand p, .system-pill { display: none; }
   main { width: calc(100% - 1.25rem); margin-top: 1rem; }
   .entry-options, .controls-section, .data-grid { grid-template-columns: 1fr; }
+  .analytics-section { grid-column: auto; }
+  .analytics-metrics { grid-template-columns: repeat(2, 1fr); }
+  .anomaly-list li { flex-direction: column; gap: .2rem; }
   .landing-page { padding: 1.5rem 1rem; background: linear-gradient(160deg, #0c1932 0%, #173d66 48%, #eaf3fc 48%); }
   .landing-content { margin-top: 12vh; }
   .landing-content h1 { font-size: 2.25rem; }
