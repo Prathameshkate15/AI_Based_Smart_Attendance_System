@@ -54,3 +54,13 @@ def test_mlops_import():
     from app.mlops.inference import InferencePipeline
     assert AbsenteeismModel is not None
     assert InferencePipeline is not None
+def test_postgres_url_uses_psycopg_driver(monkeypatch):
+    """Render's PostgreSQL URL must use the installed psycopg driver."""
+    from app.database import normalize_database_url
+
+    assert normalize_database_url("postgres://user:pass@localhost/db") == (
+        "postgresql+psycopg://user:pass@localhost/db"
+    )
+    assert normalize_database_url("postgresql://user:pass@localhost/db") == (
+        "postgresql+psycopg://user:pass@localhost/db"
+    )

@@ -6,7 +6,17 @@ import os
 # Using PostgreSQL for production, SQLite for development/demo
 # In Docker: postgres://postgres:postgres@postgres:5432/attendance
 # For local development:
-SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./attendance.db")
+def normalize_database_url(url: str) -> str:
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
+
+
+SQLALCHEMY_DATABASE_URL = normalize_database_url(
+    os.getenv("DATABASE_URL", "sqlite:///./attendance.db")
+)
 
 connect_args = {"check_same_thread": False} if SQLALCHEMY_DATABASE_URL.startswith("sqlite") else {}
 engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args=connect_args)
