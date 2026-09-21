@@ -3,7 +3,7 @@ services:
     name: smart-attendance-api
     runtime: docker
     rootDir: backend
-    plan: starter
+    plan: free
     healthCheckPath: /api/v1/health
     envVars:
       - key: DATABASE_URL
